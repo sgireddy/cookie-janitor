@@ -232,6 +232,69 @@ def _render_result(console: Console, result: ScanResult, *, show_value_hash: boo
     console.print(table)
 
 
+@app.command()
+def restore(
+    backup_path: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Path to a previously-created backup of cookies.sqlite "
+                "(printed by the GUI or by `clean --apply`)."
+            ),
+        ),
+    ],
+) -> None:
+    """Atomically restore a profile's cookies from a backup file.
+
+    The browser must not be running. The backup file must be a regular
+    file you own. Path metadata in the backup file's directory is used
+    to identify which profile to restore into.
+    """
+    from pathlib import Path as _Path
+
+    from cookie_janitor.writers.firefox import restore_from_backup
+
+    bp = _Path(backup_path).expanduser().resolve()
+    if not bp.is_file():
+        typer.echo(f"ERROR: not a regular file: {bp}", err=True)
+        raise typer.Exit(code=2)
+
+    # Backup layout: <root>/<browser>/<profile_name>/<ts>/cookies.sqlite.
+    try:
+        profile_name = bp.parent.parent.name
+        browser_name = bp.parent.parent.parent.name
+    except (AttributeError, IndexError):
+        typer.echo(
+            "ERROR: backup path doesn't look like a cookie-janitor backup tree",
+            err=True,
+        )
+        raise typer.Exit(code=2) from None
+    if browser_name != BrowserKind.FIREFOX.value:
+        typer.echo(
+            f"ERROR: restore for {browser_name!r} is not implemented yet",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    profiles = firefox_reader.discover_profiles()
+    matches = [p for p in profiles if p.profile_name == profile_name]
+    if not matches:
+        typer.echo(
+            f"ERROR: no Firefox profile named {profile_name!r} found on this machine",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    profile = matches[0]
+
+    try:
+        restore_from_backup(profile, bp)
+    except (BrowserRunningError, RuntimeError) as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Restored {profile.display} from {bp}")
+
+
 def main() -> None:  # pragma: no cover - thin wrapper
     try:
         app()

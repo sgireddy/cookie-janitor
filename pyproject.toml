@@ -108,3 +108,57 @@ filterwarnings = ["error"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]
+
+# ---------------------------------------------------------------------------
+# Briefcase: turn the GUI into a macOS .app and DMG.
+# https://briefcase.readthedocs.io
+#
+# We deliberately do NOT pull these dependencies into the wheel install
+# matrix; briefcase reads this block only when invoked as `briefcase ...`.
+# ---------------------------------------------------------------------------
+
+[tool.briefcase]
+project_name = "Cookie Janitor"
+bundle = "dev.cookiejanitor"
+version = "0.2.0"
+url = "https://github.com/sgireddy/cookie-janitor"
+license.file = "LICENSE"
+author = "The cookie-janitor contributors"
+author_email = "openhands@all-hands.dev"
+
+[tool.briefcase.app.cookie_janitor]
+formal_name = "Cookie Janitor"
+description = "See every cookie on your machine, why it's there, and decide what to keep."
+long_description = """
+Cookie Janitor is an open-source desktop helper that classifies every
+cookie in your browser using the Open Cookie Database and shows you
+the reason for each recommendation. You decide what to delete. The app
+never sends your cookies anywhere, makes a verified backup before any
+deletion, and refuses to operate while your browser is running.
+"""
+sources = ["src/cookie_janitor"]
+test_sources = ["tests"]
+
+# Runtime dependencies for the bundled app. Mirrors the [project]
+# dependency block plus PySide6 (the GUI extra).
+requires = [
+    "browser-cookie3>=0.20.1,<0.21",
+    "pycryptodomex>=3.19.1,<4",
+    "psutil>=5.9,<7",
+    "pydantic>=2.7,<3",
+    "typer>=0.12,<1",
+    "rich>=13.7,<15",
+    "ruamel.yaml>=0.18,<0.19",
+    "PySide6>=6.7,<7",
+]
+
+[tool.briefcase.app.cookie_janitor.macOS]
+# Universal2 wheels mean a single x86_64 build can ship a universal app
+# in principle, but briefcase still produces per-arch artifacts. We let
+# the CI matrix do both arm64 and x86_64.
+universal_build = false
+requires = []
+# Ad-hoc sign by default; CI will switch to a real Developer ID if the
+# DEVELOPER_ID_APPLICATION secret is set.
+[tool.briefcase.app.cookie_janitor.macOS.app]
+template = "https://github.com/beeware/briefcase-macOS-app-template"

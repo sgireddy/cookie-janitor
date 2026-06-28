@@ -1,0 +1,191 @@
+name: Release
+
+# Build the macOS .app + .dmg for tagged releases (`v*`), and also on a
+# manual workflow_dispatch so we can produce unsigned development builds
+# without cutting a tag.
+#
+# What this workflow guarantees today:
+#   * One DMG per macOS arch (arm64 + x86_64), built on the matching
+#     runner so the bundled Qt binaries are native.
+#   * SHA-256 sums published next to the DMGs so users can verify what
+#     they downloaded matches what CI produced.
+#   * A draft GitHub Release is created on tag pushes; a maintainer
+#     publishes it after a quick smoke test.
+#
+# What this workflow does NOT do yet (tracked):
+#   * Code-signing with a Developer ID Application certificate. Without
+#     it macOS Gatekeeper will require a right-click → Open the first
+#     time. We surface this clearly in the release notes.
+#   * Notarisation. Same reason. We will add both once a signing
+#     identity is available and stored in repo secrets as
+#     APPLE_CERTIFICATE_P12 / APPLE_CERTIFICATE_PASSWORD / TEAM_ID etc.
+#
+# The workflow only writes inside the runner. The single write outside
+# the runner is `softprops/action-gh-release`, which requires the
+# default GITHUB_TOKEN with `contents: write` — declared explicitly.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Optional tag name for the resulting draft release"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    name: Build macOS DMG (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 runners are Apple Silicon, macos-13 runners are Intel.
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # briefcase reads tags for version metadata
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies (dev + gui)
+        run: uv sync --extra dev --extra gui --frozen
+
+      - name: Install briefcase
+        run: uv pip install "briefcase>=0.3.20,<0.4"
+
+      - name: Briefcase create + build
+        run: |
+          uv run briefcase create macOS app --no-input
+          uv run briefcase build macOS app --no-input
+
+      - name: Briefcase package (ad-hoc signed DMG)
+        # `--adhoc-sign` is the documented way to produce an unsigned-
+        # but-launchable bundle for users who right-click → Open. CI
+        # will switch to a real `--identity` once a Developer ID is
+        # provisioned (see TODO at top of file).
+        run: uv run briefcase package macOS app --adhoc-sign --no-input
+
+      - name: Locate built DMG
+        id: locate
+        run: |
+          set -euo pipefail
+          dmg="$(find dist -name '*.dmg' -print -quit)"
+          if [ -z "${dmg}" ]; then
+            echo "No DMG produced by briefcase" >&2
+            exit 1
+          fi
+          renamed="dist/Cookie-Janitor-${{ matrix.arch }}.dmg"
+          mv "${dmg}" "${renamed}"
+          echo "dmg=${renamed}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA-256
+        run: |
+          cd dist
+          shasum -a 256 "$(basename '${{ steps.locate.outputs.dmg }}')" \
+            > "$(basename '${{ steps.locate.outputs.dmg }}').sha256"
+
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: build-macos
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all macOS artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+          pattern: macos-*
+          merge-multiple: true
+
+      - name: Assemble release directory
+        run: |
+          mkdir -p release
+          cp artefacts/*.dmg release/
+          cp artefacts/*.dmg.sha256 release/
+          ls -la release/
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.tag_name || 'preview' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Cookie Janitor ${{ steps.tag.outputs.name }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.dmg
+            release/*.dmg.sha256
+          body: |
+            ## Cookie Janitor ${{ steps.tag.outputs.name }}
+
+            **First time opening?** macOS will warn that this app is from
+            an unidentified developer because this build is not yet
+            signed with an Apple Developer ID. To open it:
+
+            1. Right-click `Cookie Janitor.app` in Applications.
+            2. Choose **Open**.
+            3. Click **Open** in the dialog that appears.
+
+            You only need to do this the first time.
+
+            ### Verify your download
+
+            Each DMG ships with a `.sha256` file containing its
+            SHA-256 hash. To verify, run:
+
+            ```
+            shasum -a 256 Cookie-Janitor-arm64.dmg
+            ```
+
+            and compare against the contents of
+            `Cookie-Janitor-arm64.dmg.sha256`.
+
+            ### Source
+
+            This binary was built from commit
+            [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}).
+            Every line of source is on GitHub.

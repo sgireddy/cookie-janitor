@@ -19,7 +19,7 @@ a final say always belonging to the user.
 | D1 | License: **Apache-2.0** | Permissive, patent grant, compatible with our LGPL/Apache deps | Hard to change after first external contribution |
 | D2 | Language: **Python 3.11+** for the core | One supply chain, leverages `browser_cookie3` ecosystem | Yes, but expensive |
 | D3 | Env / packaging: **uv** | Fast, lockfile with hashes, reproducible | Yes |
-| D4 | GUI on day 1: **Tauri 2** shell + Python sidecar over local JSON-RPC | Small signed binaries, sandboxed, far less attack surface than Electron | Yes |
+| D4 | GUI: **PySide6 + Briefcase**. (Reversed from Tauri+sidecar.) | One supply chain (Python), no IPC boundary to harden, much faster delivery. Trade-off: larger binary (Qt) and LGPL-3.0 component. Mitigated by dynamic linking + bundled COPYING.LGPLv3 + Apache-2.0 source. | Yes (could revisit Tauri later for Linux flatpak / smaller binaries) |
 | D5 | **No BleachBit fork.** Three high-severity CVEs in 3 years (CVE-2023-47113, CVE-2025-32780, CVE-2026-55567), all Windows path/FS handling. We learn from the patterns, not the codebase. | Security-first | Permanent |
 | D6 | **No telemetry, ever.** No analytics, no crash reporting to us. | A privacy tool with telemetry is not a privacy tool | Permanent |
 | D7 | **No built-in auto-update.** Updates via package manager / store. | Auto-update is a CVE goldmine (see BleachBit DLL hijacks) | Yes, but unlikely |

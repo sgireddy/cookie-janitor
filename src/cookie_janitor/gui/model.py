@@ -126,9 +126,8 @@ class CookiesModel(QAbstractTableModel):
         if col_key == "name":
             return decision.cookie.name
         if col_key == "expires":
-            if decision.cookie.is_session:
+            if decision.cookie.is_session or decision.cookie.expires is None:
                 return "session"
-            assert decision.cookie.expires is not None
             return decision.cookie.expires.strftime("%Y-%m-%d")
         if col_key == "rationale":
             return decision.rationale

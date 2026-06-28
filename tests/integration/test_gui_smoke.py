@@ -20,11 +20,10 @@ import pytest
 # QApplication lifecycle for us.
 pytest.importorskip("PySide6")
 
-from cookie_janitor.gui.model import CookiesModel  # noqa: E402
-from cookie_janitor.gui.window import MainWindow  # noqa: E402
-from cookie_janitor.model.cookie import BrowserKind, Verdict  # noqa: E402
-from cookie_janitor.policy.decide import UserPolicy, decide  # noqa: E402
-from cookie_janitor.readers import firefox as firefox_reader  # noqa: E402
+from cookie_janitor.gui.model import CookiesModel
+from cookie_janitor.gui.window import MainWindow
+from cookie_janitor.policy.decide import UserPolicy, decide
+from cookie_janitor.readers import firefox as firefox_reader
 
 # Force the offscreen platform so we don't need a display server.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -91,8 +90,8 @@ def test_main_window_handles_no_profiles(qtbot, monkeypatch):
     window = MainWindow()
     qtbot.addWidget(window)
     # No crash, friendly empty-state message rendered, delete disabled.
-    assert not window._delete_btn.isEnabled()  # noqa: SLF001
-    assert "couldn't find a firefox profile" in window._status.text().lower()  # noqa: SLF001
+    assert not window._delete_btn.isEnabled()
+    assert "couldn't find a firefox profile" in window._status.text().lower()
 
 
 def test_main_window_renders_real_decisions(qtbot, tmp_path: Path, monkeypatch):
@@ -103,5 +102,5 @@ def test_main_window_renders_real_decisions(qtbot, tmp_path: Path, monkeypatch):
 
     window = MainWindow()
     qtbot.addWidget(window)
-    assert window._proxy.rowCount() >= 1  # noqa: SLF001
-    assert window._delete_btn.isEnabled()  # noqa: SLF001
+    assert window._proxy.rowCount() >= 1
+    assert window._delete_btn.isEnabled()
