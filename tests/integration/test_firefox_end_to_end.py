@@ -78,17 +78,28 @@ def _create_firefox_profile(root: Path) -> Path:
     return profile_dir
 
 
-def test_full_pipeline_against_synthetic_firefox(tmp_path: Path, monkeypatch):
+def _stage_linux_layout(tmp_path: Path, monkeypatch) -> Path:
+    """Stage a Linux-style Firefox profile under a fake $HOME.
+
+    Monkeypatches Path.home, the running-process probe, and the
+    reader's platform key so the same fixture exercises the discovery
+    code path regardless of the test host's actual OS.
+    """
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    # Firefox Linux layout
     ff_root = fake_home / ".mozilla" / "firefox"
     ff_root.mkdir(parents=True)
     _create_firefox_profile(ff_root)
 
     monkeypatch.setattr(Path, "home", lambda: fake_home)
-    # Pretend Firefox is not running so reader proceeds.
     monkeypatch.setattr(firefox_reader, "is_running", lambda _kind: False)
+    # Force the Linux discovery path regardless of where the test runs.
+    monkeypatch.setattr(firefox_reader, "_platform_key", lambda: "linux")
+    return fake_home
+
+
+def test_full_pipeline_against_synthetic_firefox(tmp_path: Path, monkeypatch):
+    _stage_linux_layout(tmp_path, monkeypatch)
 
     profiles = firefox_reader.discover_profiles()
     assert len(profiles) == 1
@@ -123,14 +134,7 @@ def test_full_pipeline_against_synthetic_firefox(tmp_path: Path, monkeypatch):
 
 
 def test_user_keep_list_overrides_tracker_verdict(tmp_path: Path, monkeypatch):
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    ff_root = fake_home / ".mozilla" / "firefox"
-    ff_root.mkdir(parents=True)
-    _create_firefox_profile(ff_root)
-
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
-    monkeypatch.setattr(firefox_reader, "is_running", lambda _kind: False)
+    _stage_linux_layout(tmp_path, monkeypatch)
 
     profile = firefox_reader.discover_profiles()[0]
     cookies = firefox_reader.read_cookies(profile)
@@ -146,14 +150,7 @@ def test_user_keep_list_overrides_tracker_verdict(tmp_path: Path, monkeypatch):
 
 
 def test_reader_does_not_touch_original_file(tmp_path: Path, monkeypatch):
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    ff_root = fake_home / ".mozilla" / "firefox"
-    ff_root.mkdir(parents=True)
-    _create_firefox_profile(ff_root)
-
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
-    monkeypatch.setattr(firefox_reader, "is_running", lambda _kind: False)
+    _stage_linux_layout(tmp_path, monkeypatch)
 
     profile = firefox_reader.discover_profiles()[0]
     before = profile.cookies_db_path.stat()
@@ -168,20 +165,14 @@ def test_reader_does_not_touch_original_file(tmp_path: Path, monkeypatch):
 
 @pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX symlinks only")
 def test_reader_refuses_symlinked_cookies_db(tmp_path: Path, monkeypatch):
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    ff_root = fake_home / ".mozilla" / "firefox"
-    ff_root.mkdir(parents=True)
-    profile_dir = _create_firefox_profile(ff_root)
+    fake_home = _stage_linux_layout(tmp_path, monkeypatch)
+    profile_dir = next((fake_home / ".mozilla" / "firefox").glob("*.default-release"))
 
     # Replace cookies.sqlite with a symlink to /etc/hostname — classic
     # BleachBit-style attack. We must refuse.
     db_file = profile_dir / "cookies.sqlite"
     db_file.unlink()
     db_file.symlink_to("/etc/hostname")
-
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
-    monkeypatch.setattr(firefox_reader, "is_running", lambda _kind: False)
 
     # Discovery skips it with a warning; the list should be empty.
     profiles = firefox_reader.discover_profiles()
