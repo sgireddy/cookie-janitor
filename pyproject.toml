@@ -136,8 +136,8 @@ bundle = "dev.cookiejanitor"
 version = "0.2.0"
 url = "https://github.com/sgireddy/cookie-janitor"
 license.file = "LICENSE"
-author = "The cookie-janitor contributors"
-author_email = "openhands@all-hands.dev"
+author = "Shashi Gireddy"
+author_email = "3526482+sgireddy@users.noreply.github.com"
 
 [tool.briefcase.app.cookie_janitor]
 formal_name = "Cookie Janitor"

@@ -84,6 +84,30 @@ uv run cookie-janitor scan --browser firefox --dry-run
 uv run pytest
 ```
 
+### Running the GUI
+
+```bash
+uv sync --extra gui
+uv run cookie-janitor-gui
+```
+
+### Building a macOS DMG locally
+
+Hosted GitHub Actions Intel runners (`macos-13`) are saturated and being
+retired, so the published release ships Apple Silicon only. To produce
+an Intel-compatible DMG yourself, build a **universal2** bundle on any
+Mac — the resulting `.app` runs on both Intel and Apple Silicon:
+
+```bash
+./scripts/build-mac-dmg.sh                # universal2 (default)
+./scripts/build-mac-dmg.sh --native       # only this Mac's architecture
+./scripts/build-mac-dmg.sh --identity "Developer ID Application: …"
+```
+
+Output lands in `dist/Cookie-Janitor-<arch>.dmg` with a sibling
+`.sha256`. First launch on an unsigned build needs a right-click → Open
+to get past Gatekeeper.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) (to be written). All contributions
