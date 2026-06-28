@@ -1,6 +1,6 @@
 [project]
 name = "cookie-janitor"
-version = "0.1.0"
+version = "0.2.0"
 description = "A transparent, open-source helper that shows you every cookie on your machine, explains why it's there, and lets you decide what to keep."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,18 +37,33 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# GUI extra. We keep PySide6 out of the base install so headless / CLI-only
+# users don't pull in ~80 MB of Qt. The desktop app installer always
+# bundles this extra.
+#
+# PySide6 is LGPL-3.0. We ship it as a dynamically-linked component of an
+# Apache-2.0 application; users may replace the Qt libraries inside the
+# .app bundle. The bundled COPYING.LGPLv3 covers our redistribution.
+gui = [
+    "PySide6>=6.7,<7",
+]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
+    "pytest-qt>=4.4",
     "ruff>=0.6",
     "mypy>=1.10",
     "types-psutil",
     "bandit>=1.7",
     "pip-audit>=2.7",
+    "PySide6>=6.7,<7",
 ]
 
 [project.scripts]
 cookie-janitor = "cookie_janitor.cli:app"
+
+[project.gui-scripts]
+cookie-janitor-gui = "cookie_janitor.gui.app:main"
 
 [build-system]
 requires = ["uv_build>=0.11.5,<0.12.0"]
