@@ -72,6 +72,10 @@ def open_dir_nofollow(directory: Path) -> Iterator[int]:
         fd = os.open(directory, flags)
     else:  # Windows
         # On Windows we cannot easily get O_NOFOLLOW; check reparse points up the chain.
+        # Also: os.open(<directory>, os.O_RDONLY) fails with PermissionError on
+        # Windows because directories need FILE_FLAG_BACKUP_SEMANTICS. The dir
+        # FD is only consumed by POSIX renameat/fsync paths; on Windows we
+        # yield a sentinel that callers must not pass to os.* APIs.
         accum = Path(directory.anchor)
         for part in directory.relative_to(directory.anchor).parts:
             accum = accum / part
@@ -81,12 +85,13 @@ def open_dir_nofollow(directory: Path) -> Iterator[int]:
                 st.st_file_attributes & 0x400  # type: ignore[attr-defined]
             ):
                 raise UnsafePathError(f"path component is a reparse point: {accum}")
-        fd = os.open(directory, os.O_RDONLY)
+        fd = -1
 
     try:
         yield fd
     finally:
-        os.close(fd)
+        if fd >= 0:
+            os.close(fd)
 
 
 def assert_regular_file_owned_by_us(path: Path) -> os.stat_result:

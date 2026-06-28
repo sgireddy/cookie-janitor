@@ -190,8 +190,10 @@ def delete_cookies(
         # Step 3: perform the delete on the working copy.
         deleted = _delete_rows(working, [c.identity for c in cookies_to_delete])
 
-        # Step 4: durability before swap.
-        with working.open("rb") as fh:
+        # Step 4: durability before swap. Open writable because Windows
+        # refuses to flush a read-only handle (EBADF on _commit).
+        with working.open("rb+") as fh:
+            fh.flush()
             os.fsync(fh.fileno())
 
         # Step 5: atomic swap.

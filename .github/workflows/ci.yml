@@ -73,7 +73,9 @@ jobs:
         run: uv run bandit -q -r src
 
       - name: pip-audit (CVE scan)
-        run: uv run pip-audit --strict
+        # --skip-editable so pip-audit doesn't try to look our own package
+        # up on PyPI (it isn't published yet and that's an error in --strict).
+        run: uv run pip-audit --strict --skip-editable
 
       - name: Verify no secrets in tree
         run: |
