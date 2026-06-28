@@ -73,9 +73,13 @@ jobs:
         run: uv run bandit -q -r src
 
       - name: pip-audit (CVE scan)
-        # --skip-editable so pip-audit doesn't try to look our own package
-        # up on PyPI (it isn't published yet and that's an error in --strict).
-        run: uv run pip-audit --strict --skip-editable
+        # Audit the locked dependency set (uv.lock) rather than the live
+        # environment. This avoids pip-audit choking on our own editable
+        # install (cookie-janitor isn't on PyPI yet) and gives us a
+        # reproducible, lockfile-driven security check.
+        run: |
+          uv export --no-emit-project --no-hashes --frozen > /tmp/requirements.txt
+          uv run pip-audit --strict --requirement /tmp/requirements.txt
 
       - name: Verify no secrets in tree
         run: |

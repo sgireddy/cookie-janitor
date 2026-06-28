@@ -245,7 +245,9 @@ def restore_from_backup(profile: Profile, backup_path: Path) -> None:
     working.touch(mode=0o600, exist_ok=False)
     try:
         safe_fs.safe_copy(backup_path, working)
-        with working.open("rb") as fh:
+        # Open writable so os.fsync works on Windows (see writer step 4).
+        with working.open("rb+") as fh:
+            fh.flush()
             os.fsync(fh.fileno())
         safe_fs.atomic_replace(working, src)
     except BaseException:
