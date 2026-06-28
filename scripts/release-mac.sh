@@ -129,11 +129,14 @@ else
     [[ $rebuild -eq 1 ]] && warn "--rebuild given, wiping dist/ and build/"
     rm -rf dist build/cookie_janitor
 
+    # macOS still ships Bash 3.2 where "${arr[@]}" on an empty array
+    # trips `set -u` ("unbound variable"). The `${arr[@]+...}` form
+    # expands to nothing if the array is empty and to the array
+    # otherwise — safe on every Bash from 3.0 onward.
     build_args=()
     [[ -n "$mode_flag" ]] && build_args+=("$mode_flag")
     [[ -n "$identity"  ]] && build_args+=(--identity "$identity")
-
-    bash "$repo_root/scripts/build-mac-dmg.sh" "${build_args[@]}"
+    bash "$repo_root/scripts/build-mac-dmg.sh" ${build_args[@]+"${build_args[@]}"}
 
     existing=(dist/Cookie-Janitor-*.dmg)
     [[ ${#existing[@]} -gt 0 ]] || die "build finished but no DMG was produced under dist/"
