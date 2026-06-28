@@ -1,0 +1,95 @@
+[project]
+name = "cookie-janitor"
+version = "0.1.0"
+description = "A transparent, open-source helper that shows you every cookie on your machine, explains why it's there, and lets you decide what to keep."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "The cookie-janitor contributors" }]
+requires-python = ">=3.11"
+keywords = ["cookies", "privacy", "browser", "tracker", "security"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Security",
+]
+dependencies = [
+    # Cookie store discovery + decryption across browsers/OSes.
+    # 0 known CVEs / GHSA / OSV as of project scaffolding.
+    "browser-cookie3>=0.20.1,<0.21",
+    # Transitive of browser-cookie3, but pinned past CVE-fixed-in-3.19.1
+    # (Manger-attack OAEP side-channel; not on a path we use, but pinned).
+    "pycryptodomex>=3.19.1,<4",
+    # Detect running browsers; refuse to operate on a live profile.
+    "psutil>=5.9,<7",
+    # Config and IPC payload validation.
+    "pydantic>=2.7,<3",
+    # CLI framework.
+    "typer>=0.12,<1",
+    # Rich terminal output for the CLI.
+    "rich>=13.7,<15",
+    # YAML for the user config file (allow-list, policy).
+    "ruamel.yaml>=0.18,<0.19",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "types-psutil",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+]
+
+[project.scripts]
+cookie-janitor = "cookie_janitor.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.5,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # flake8-bugbear
+    "S",             # flake8-bandit
+    "UP",            # pyupgrade
+    "SIM",           # flake8-simplify
+    "RET",           # flake8-return
+    "PTH",           # flake8-use-pathlib
+    "TID",           # flake8-tidy-imports
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "S101",  # asserts are fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "PLR2004"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_unimported = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]

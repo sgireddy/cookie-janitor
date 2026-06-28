@@ -1,0 +1,36 @@
+ID,Platform,Category,Cookie / Data Key name,Domain,Description,Retention period,Data Controller,User Privacy & GDPR Rights Portals,Wildcard match
+1,Google,Marketing,NID,.google.com,"Used by Google to remember preferences and other information, such as preferred language, how many search results to show per page, and whether or not to enable Google's SafeSearch filter.",6 months,Google LLC,https://policies.google.com/privacy,0
+2,Google,Marketing,DSID,.doubleclick.net,Used to identify a logged-in user across different websites and to remember whether they have agreed to ad personalization.,2 weeks,Google LLC,https://policies.google.com/privacy,0
+3,Google,Marketing,IDE,.doubleclick.net,Used by Google DoubleClick to register and report the website user's actions after viewing or clicking one of the advertiser's ads with the purpose of measuring the efficacy of an ad and to present targeted ads to the user.,13 months,Google LLC,https://policies.google.com/privacy,0
+4,Google Analytics,Analytics,_ga,,Registers a unique ID that is used to generate statistical data on how the visitor uses the website.,2 years,Google LLC,https://policies.google.com/privacy,0
+5,Google Analytics,Analytics,_gid,,Registers a unique ID that is used to generate statistical data on how the visitor uses the website.,1 day,Google LLC,https://policies.google.com/privacy,0
+6,Google Analytics,Analytics,_gat,,Used by Google Analytics to throttle request rate.,1 minute,Google LLC,https://policies.google.com/privacy,0
+7,Google Analytics,Analytics,_ga_*,,Used by Google Analytics 4 to persist session state.,2 years,Google LLC,https://policies.google.com/privacy,1
+8,Facebook,Marketing,_fbp,,Used by Facebook to deliver a series of advertisement products such as real time bidding from third-party advertisers.,3 months,Meta Platforms Inc.,https://www.facebook.com/privacy/policy/,0
+9,Facebook,Marketing,fr,.facebook.com,Used by Facebook to deliver a series of advertisement products such as real time bidding from third-party advertisers.,3 months,Meta Platforms Inc.,https://www.facebook.com/privacy/policy/,0
+10,Facebook,Functional,c_user,.facebook.com,Stores your Facebook user ID; required to keep you logged in to Facebook.,Session,Meta Platforms Inc.,https://www.facebook.com/privacy/policy/,0
+11,Facebook,Functional,xs,.facebook.com,"Stores the encrypted session, required to keep you logged in to Facebook.",Session,Meta Platforms Inc.,https://www.facebook.com/privacy/policy/,0
+12,Google,Functional,SID,.google.com,Stores your Google account session; required to keep you logged in to Google services such as Gmail.,2 years,Google LLC,https://policies.google.com/privacy,0
+13,Google,Functional,SSID,.google.com,"Stores your Google account session over HTTPS; required to keep you logged in.",2 years,Google LLC,https://policies.google.com/privacy,0
+14,Google,Functional,HSID,.google.com,"Stores your Google account session, used to confirm your account in security checks.",2 years,Google LLC,https://policies.google.com/privacy,0
+15,Google,Functional,APISID,.google.com,Used by Google services to keep you authenticated across sessions.,2 years,Google LLC,https://policies.google.com/privacy,0
+16,Google,Functional,SAPISID,.google.com,Used by Google services to keep you authenticated across sessions.,2 years,Google LLC,https://policies.google.com/privacy,0
+17,Google,Functional,__Secure-1PSID,.google.com,First-party Google account session cookie; required for login.,2 years,Google LLC,https://policies.google.com/privacy,0
+18,Google,Functional,__Secure-3PSID,.google.com,Third-party Google account session cookie; required for login across embedded contexts.,2 years,Google LLC,https://policies.google.com/privacy,0
+19,YouTube,Marketing,VISITOR_INFO1_LIVE,.youtube.com,Used by YouTube to estimate the user's bandwidth on pages with integrated YouTube videos and to track ad impressions.,6 months,Google LLC,https://policies.google.com/privacy,0
+20,GitHub,Functional,user_session,.github.com,Identifies your GitHub login session; required to stay logged in.,2 weeks,GitHub Inc.,https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement,0
+21,GitHub,Functional,__Host-user_session_same_site,.github.com,Ensures the GitHub session cookie is only sent in same-site contexts.,2 weeks,GitHub Inc.,https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement,0
+22,GitHub,Functional,logged_in,.github.com,Indicates whether you are currently signed in to GitHub.,1 year,GitHub Inc.,https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement,0
+23,GitHub,Performance,_gh_sess,.github.com,Stores your GitHub session state (for example which tab you have open).,Session,GitHub Inc.,https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement,0
+24,Cloudflare,Functional,__cf_bm,,Used by Cloudflare to distinguish humans from bots so the site can be served quickly without false bot-detection challenges.,30 minutes,Cloudflare Inc.,https://www.cloudflare.com/privacypolicy/,0
+25,Cloudflare,Functional,cf_clearance,,Used by Cloudflare to remember that the visitor has passed a security challenge.,30 days,Cloudflare Inc.,https://www.cloudflare.com/privacypolicy/,0
+26,LinkedIn,Marketing,bcookie,.linkedin.com,Used by LinkedIn to identify the browser and improve targeted advertising.,2 years,LinkedIn Corp.,https://www.linkedin.com/legal/privacy-policy,0
+27,LinkedIn,Marketing,bscookie,.linkedin.com,Used by LinkedIn for tracking user actions across sites.,2 years,LinkedIn Corp.,https://www.linkedin.com/legal/privacy-policy,0
+28,LinkedIn,Functional,li_at,.linkedin.com,Stores your LinkedIn session; required to keep you logged in.,1 year,LinkedIn Corp.,https://www.linkedin.com/legal/privacy-policy,0
+29,LinkedIn,Functional,JSESSIONID,.linkedin.com,Standard session identifier used by LinkedIn's application server.,Session,LinkedIn Corp.,https://www.linkedin.com/legal/privacy-policy,0
+30,Hotjar,Analytics,_hjSessionUser_*,,Used by Hotjar to identify a unique visitor across sessions.,1 year,Hotjar Ltd.,https://www.hotjar.com/legal/policies/privacy/,1
+31,Hotjar,Analytics,_hjSession_*,,Used by Hotjar to maintain a Hotjar session for a single visit.,30 minutes,Hotjar Ltd.,https://www.hotjar.com/legal/policies/privacy/,1
+32,Microsoft Clarity,Analytics,_clck,,Used by Microsoft Clarity to persist the user ID and preferences for an analytics session.,1 year,Microsoft Corp.,https://privacy.microsoft.com/privacystatement,0
+33,Microsoft Clarity,Analytics,_clsk,,Used by Microsoft Clarity to record session details for analytics.,1 day,Microsoft Corp.,https://privacy.microsoft.com/privacystatement,0
+34,TikTok,Marketing,_tt_enable_cookie,.tiktok.com,Used by TikTok Pixel to enable cookie-based ad tracking.,1 year,TikTok Inc.,https://www.tiktok.com/legal/privacy-policy,0
+35,TikTok,Marketing,_ttp,.tiktok.com,Used by TikTok Pixel to track conversions across sites.,13 months,TikTok Inc.,https://www.tiktok.com/legal/privacy-policy,0
