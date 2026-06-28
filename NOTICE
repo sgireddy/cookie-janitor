@@ -1,0 +1,24 @@
+cookie-janitor
+Copyright 2026 The cookie-janitor contributors
+
+This product includes software developed by the cookie-janitor project
+(https://github.com/<TBD>/cookie-janitor).
+
+This product depends on third-party software. See THIRD_PARTY_NOTICES.md
+for the complete list of upstream projects, their licenses, and attribution.
+
+This product consumes the following data sources at runtime, with their
+licenses respected and attributed in the user-facing UI:
+
+  - Open Cookie Database (Apache-2.0)
+    https://github.com/jkwakman/Open-Cookie-Database
+
+  - EasyPrivacy / EasyList (CC-BY-SA 3.0 / GPLv3)
+    https://easylist.to/
+
+  - Disconnect Tracking Protection list (GPLv3)
+    https://github.com/disconnectme/disconnect-tracking-protection
+
+These data sources are downloaded by the user's own installation over
+HTTPS with integrity verification; cookie-janitor does not redistribute
+modified copies of them.
