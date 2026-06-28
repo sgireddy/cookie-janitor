@@ -28,7 +28,10 @@ a final say always belonging to the user.
 | D10 | **User keep-list wins over every other rule.** Even a 100% confident "tracker" verdict loses to a user rule. | The user is the boss | Permanent |
 | D11 | **Mobile (iOS/Android) is out of scope for v1.** App sandbox makes cleaning another app's cookies impossible without root/jailbreak. Revisit as separate companion projects if/when there's demand. | OS reality, not framework choice | Yes, but probably not |
 | D12 | **Filter lists are fetched, not bundled.** TLS + sha256 pinning via a checked-in manifest. Updating the manifest is a deliberate release step. | Avoid redistribution licensing questions; keep lists fresh; keep verification explicit | Yes |
-| D13 | **Default verdict for Unknown is KEEP**, not DELETE. | False positives (lost sessions) are far worse than false negatives (one tracker survives) | Yes |
+| D13 | **Default verdict for Unknown is KEEP**, not DELETE. **In Aggressive mode only**, Unknown flips to DELETE for non-session, non-auth-shape names. | False positives (lost sessions) are far worse than false negatives in CONSERVATIVE/BALANCED; users who opt into AGGRESSIVE have explicitly accepted the trade-off | Yes |
+| D14 | **Three classifier modes** (Conservative / Balanced / Aggressive), default Balanced. Mode is a `UserPolicy` field; rule order is fixed and grep-able in `policy/decide.py`. | A single hard-coded policy can't serve both "never log me out" users and "clean jar" users. v0.3.0. | Yes (could collapse to one mode if telemetry showed everyone picks the same; but D6 → we have no telemetry) |
+| D15 | **Auth-shape exception** protects login cookies in every mode. Substrings ≥4 chars only (no `sid` / `uid` / `sso` — too many tracker false positives like `visid_incap`). `__Host-` / `__Secure-` prefixes always pass. | Aggressive mode otherwise nukes real session cookies | Permanent |
+| D16 | **Allow-list lives in a plain text file**, not JSON / SQLite / settings DB. One domain per line. | User-edited, must be `cat`-auditable | Yes |
 
 ## Verified-clean dependencies (CVE / GHSA / OSV checked at scaffold time)
 
