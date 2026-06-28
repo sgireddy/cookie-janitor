@@ -39,8 +39,12 @@ permissions:
   contents: read
 
 concurrency:
+  # If a newer release run for the same ref starts, abandon the older one.
+  # Releases are idempotent (artifacts are derived from the ref, draft
+  # release is upserted by tag_name) so superseding is safe and avoids
+  # the queue-pileup we saw when an Intel runner sat queued for hours.
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-macos:
