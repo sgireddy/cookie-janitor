@@ -22,6 +22,28 @@ A cross-platform desktop tool that:
 4. Lets **you** decide what to keep or delete. Nothing is deleted without
    your explicit confirmation. Dry-run is the default.
 
+### Classifier modes
+
+Pick the level of aggressiveness that matches your tolerance for the
+"wait, did I just get logged out?" risk:
+
+| Mode | What it deletes | Recommended for |
+|---|---|---|
+| **Conservative** | Only cookies the Open Cookie Database explicitly classifies as analytics/marketing. | Anyone who'd rather click "delete" manually than risk a logout. This was the 0.2.x behavior. |
+| **Balanced** *(default)* | Conservative, plus: known third-party tracker domains (doubleclick.net, facebook.net, hotjar.com, …), tracking subdomain labels (`tracking.`, `analytics.`, `ads.`, …), and well-known tracker cookie names (`_ga`, `_fbp`, `MUID`, `visid_incap_*`, `*_tracking`, …). | Most users. Clears the obvious junk without touching anything that could plausibly be a session. |
+| **Aggressive** | Balanced, plus: long-lived (>6 months) non-HttpOnly cookies whose name doesn't look like auth, and unknown cookies in general. Auth-shape names (`session`, `sessionid`, `csrf`, `token`, `__Host-*`, `__Secure-*`, …) are still kept. | Users who want a clean jar and are happy to re-login to the occasional obscure site. |
+
+Set the mode in the GUI's **Mode** dropdown, or via the CLI:
+
+```bash
+cookie-janitor list --mode aggressive
+```
+
+Sites you never want touched, regardless of mode, go in your **allow
+list** (File → Allow list… in the GUI, or edit
+`~/Library/Application Support/Cookie Janitor/allowlist.txt` on macOS).
+Allow-list matches always win.
+
 ## What it is not
 
 - It is **not** an anti-virus, anti-malware, or "system optimizer." It only

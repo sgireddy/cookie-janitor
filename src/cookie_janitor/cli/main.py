@@ -26,7 +26,8 @@ from cookie_janitor.model.cookie import (
     ScanResult,
     Verdict,
 )
-from cookie_janitor.policy.decide import UserPolicy, decide
+from cookie_janitor.policy.allowlist import load_allowlist
+from cookie_janitor.policy.decide import ClassifierMode, UserPolicy, decide
 from cookie_janitor.readers import firefox as firefox_reader
 from cookie_janitor.safety.privilege import (
     PrivilegedExecutionError,
@@ -160,6 +161,21 @@ def list_cookies(
             ),
         ),
     ] = False,
+    mode: Annotated[
+        ClassifierMode,
+        typer.Option(
+            "--mode",
+            help=(
+                "Classifier mode. 'conservative' only deletes cookies that "
+                "the Open Cookie Database classifies as analytics/marketing. "
+                "'balanced' (default) also catches known third-party tracker "
+                "domains, tracking subdomain labels, and well-known tracker "
+                "cookie names. 'aggressive' additionally deletes long-lived "
+                "non-auth cookies and unknown cookies — auth-shape names "
+                "(session, token, csrf, __Host-…) are still kept."
+            ),
+        ),
+    ] = ClassifierMode.BALANCED,
 ) -> None:
     """Show every cookie in every matching profile, with classification."""
     console = Console()
@@ -171,7 +187,7 @@ def list_cookies(
         return
 
     db = _load_bundled_cookie_db()
-    policy = UserPolicy()
+    policy = UserPolicy(keep_domains=load_allowlist(), mode=mode)
 
     for profile in profiles:
         if profile.is_running:
