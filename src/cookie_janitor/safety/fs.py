@@ -59,7 +59,7 @@ def open_dir_nofollow(directory: Path) -> Iterator[int]:
         raise UnsafePathError(f"refusing relative directory path: {directory!r}")
 
     if _IS_POSIX:
-        flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         # Walk components and refuse any symlink along the path.
         accum = Path(directory.anchor)
         for part in directory.relative_to(directory.anchor).parts:
@@ -101,7 +101,7 @@ def assert_regular_file_owned_by_us(path: Path) -> os.stat_result:
         raise UnsafePathError(f"refusing to operate on a symlink: {path}")
     if not stat.S_ISREG(st.st_mode):
         raise UnsafePathError(f"not a regular file: {path}")
-    if _IS_POSIX and st.st_uid != os.getuid():
+    if _IS_POSIX and st.st_uid != getattr(os, "getuid", lambda: -1)():
         raise UnsafePathError(f"file not owned by current user (uid={st.st_uid}): {path}")
     if not _IS_POSIX and (
         st.st_file_attributes & 0x400  # type: ignore[attr-defined]
@@ -172,7 +172,7 @@ def fresh_workspace(root: Path) -> Path:
         if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
             raise UnsafePathError(f"workspace root is not a regular dir: {root}")
         if _IS_POSIX:
-            if st.st_uid != os.getuid():
+            if st.st_uid != getattr(os, "getuid", lambda: -1)():
                 raise UnsafePathError(f"workspace root not owned by us: {root}")
             if (st.st_mode & 0o777) != 0o700:
                 raise UnsafePathError(

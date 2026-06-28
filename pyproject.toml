@@ -101,6 +101,19 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 disallow_any_unimported = true
 
+# Platform-shim modules contain code that is reachable on only some
+# platforms (Windows-only ctypes calls, POSIX-only `os.O_DIRECTORY` /
+# `os.getuid`). On any single mypy host, half the file is unreachable
+# and half of its `# type: ignore` comments are "unused". Both are
+# intended; relax those two checks for these files only.
+[[tool.mypy.overrides]]
+module = [
+    "cookie_janitor.safety.privilege",
+    "cookie_janitor.safety.fs",
+]
+warn_unreachable = false
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"
 testpaths = ["tests"]
