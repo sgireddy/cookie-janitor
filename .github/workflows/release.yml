@@ -49,11 +49,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macos-14 runners are Apple Silicon, macos-13 runners are Intel.
+          # macos-14 = Apple Silicon. We ship arm64-only for v0.2.0.
+          #
+          # The Intel (macos-13) hosted runner queue is currently saturated
+          # (jobs sit "queued" for 20+ minutes / hours) ahead of GitHub
+          # retiring macos-13 runners. Intel Macs from 2017–2019 are still
+          # in the wild though, so re-adding x86_64 — or switching to a
+          # universal2 build on macos-14 — is tracked as a TODO. Until
+          # then, Intel users can run from source via 'uv sync --extra gui'.
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
-            arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
