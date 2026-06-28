@@ -108,6 +108,30 @@ Output lands in `dist/Cookie-Janitor-<arch>.dmg` with a sibling
 `.sha256`. First launch on an unsigned build needs a right-click → Open
 to get past Gatekeeper.
 
+### Cutting a release (one command)
+
+`scripts/release-mac.sh` does the whole release flow end-to-end: it
+preflight-checks the environment, runs `build-mac-dmg.sh` if no DMG
+is on disk yet, makes sure the matching `vX.Y.Z` tag exists locally
+and on origin, and creates (or updates) a **draft** GitHub Release
+with the DMG + `.sha256` attached. Re-running is safe and idempotent.
+
+```bash
+chmod +x scripts/release-mac.sh
+./scripts/release-mac.sh                    # draft release, ad-hoc signed
+./scripts/release-mac.sh --rebuild          # force a fresh build first
+./scripts/release-mac.sh --publish          # publish immediately (skip draft)
+./scripts/release-mac.sh --identity "Developer ID Application: …"
+```
+
+The script reads the version from `pyproject.toml`, so to cut `v0.3.0`
+you bump `version = "0.3.0"` in `pyproject.toml`, commit, then run
+`./scripts/release-mac.sh`. Nothing else.
+
+Prereqs: `xcode-select --install`, `uv`, and
+[`gh`](https://cli.github.com/) authenticated as the release owner
+(`gh auth login`).
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) (to be written). All contributions
