@@ -150,7 +150,18 @@ class BySiteModel(QAbstractTableModel):
                 # is the whole point. The user can still toggle individual
                 # rows in the "All cookies" tab if they really want to.
                 return base
-            return base | Qt.ItemFlag.ItemIsUserTristate | Qt.ItemFlag.ItemIsUserCheckable
+            # NOTE: deliberately NOT setting ItemIsUserTristate. With the
+            # tristate flag set, Qt cycles user clicks through
+            # Unchecked → PartiallyChecked → Checked, so the *first* click
+            # on an empty site sends ``setData(PartiallyChecked)`` — which
+            # we'd have to interpret as "select all" or "select none", and
+            # either choice surprises the user. Without the flag, a click
+            # toggles only between Checked and Unchecked, which is the
+            # behavior people expect from a checkbox. We still RENDER
+            # PartiallyChecked from ``_check_state_for`` when the user
+            # ticks individual cookies in the "All cookies" tab — that's
+            # purely a display concern and is legal in Qt.
+            return base | Qt.ItemFlag.ItemIsUserCheckable
         return base
 
     def data(
@@ -212,12 +223,14 @@ class BySiteModel(QAbstractTableModel):
         site = self._sites[index.row()]
         if site.on_allow_list:
             return False
-        # Qt sends PartiallyChecked when you click a tristate, but we treat
-        # that as "user wants to commit one direction or the other". We
-        # cycle: Unchecked → Checked → Unchecked. PartiallyChecked is
-        # informational only (i.e. set by us, never by the user clicking).
+        # Without ``ItemIsUserTristate`` (see ``flags``) Qt only ever
+        # sends Checked or Unchecked on a user click. We still defend
+        # against PartiallyChecked here in case a future refactor turns
+        # the flag back on or a programmatic caller passes it: treat it
+        # as "select all rows for this site" because that's the only
+        # disambiguation that makes the by-site checkbox useful.
         state = Qt.CheckState(cast("int", value))
-        select = state == Qt.CheckState.Checked
+        select = state != Qt.CheckState.Unchecked
         self._source.set_selected_for_rows(site.rows, selected=select)
         # Source emits dataChanged → our _on_source_changed refreshes our
         # column. No need to emit here.

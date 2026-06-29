@@ -172,6 +172,80 @@ def test_partial_selection_renders_as_partiallychecked():
     assert state == Qt.CheckState.PartiallyChecked
 
 
+def test_checkbox_flag_is_NOT_user_tristate():
+    """Regression: when ``ItemIsUserTristate`` is set on the checkbox
+    column, Qt cycles user clicks through ``Unchecked →
+    PartiallyChecked → Checked``. That meant the FIRST click on an
+    empty site sent ``setData(PartiallyChecked)`` and our handler did
+    nothing — the row appeared unresponsive while "Select all listed
+    sites" still worked. We must render PartiallyChecked (as a
+    *display* state for mixed selections) WITHOUT enabling the user
+    tristate flag, so that a click toggles only between Checked and
+    Unchecked. (See by_site_model.flags for the full reasoning.)
+    """
+    src = _build_model([("a", "cnn.com")], mode=ClassifierMode.BALANCED)
+    site = BySiteModel(src)
+    flags = site.flags(site.index(0, 0))
+    assert flags & Qt.ItemFlag.ItemIsUserCheckable
+    assert not (flags & Qt.ItemFlag.ItemIsUserTristate), (
+        "By-site checkbox must NOT be ItemIsUserTristate — the first click"
+        " would otherwise be silently swallowed as PartiallyChecked."
+    )
+
+
+def test_first_click_from_unchecked_selects_all_rows_for_site():
+    """The exact scenario the user reported: starting from an empty
+    selection, clicking the by-site checkbox once should mark every
+    cookie for that site as selected.
+    """
+    src = _build_model(
+        [
+            ("a", "cnn.com"),
+            ("b", "cnn.com"),
+            ("c", "cnn.com"),
+            ("d", "gmail.com"),
+        ],
+        mode=ClassifierMode.BALANCED,
+    )
+    src.set_all_selected(selected=False)
+    assert src.selected_rows() == frozenset()
+
+    site = BySiteModel(src)
+    cnn_row = next(
+        i
+        for i in range(site.rowCount())
+        if (s := site.site_at(i)) is not None and s.host == "cnn.com"
+    )
+    cnn = site.site_at(cnn_row)
+    assert cnn is not None
+
+    # Simulate Qt's behaviour with ItemIsUserCheckable but NOT
+    # ItemIsUserTristate: a click on an Unchecked row sends Checked.
+    idx = site.index(cnn_row, 0)
+    site.setData(idx, Qt.CheckState.Checked.value, Qt.ItemDataRole.CheckStateRole)
+    assert set(cnn.rows).issubset(src.selected_rows())
+    # And a second click sends Unchecked again.
+    site.setData(idx, Qt.CheckState.Unchecked.value, Qt.ItemDataRole.CheckStateRole)
+    assert src.selected_rows().isdisjoint(set(cnn.rows))
+
+
+def test_setdata_treats_partiallychecked_as_select_defensively():
+    """Defensive: even if some caller (a future refactor, a test
+    harness, …) sends PartiallyChecked, treat it as "select all rows
+    for this site". Anything other than Unchecked must do *something*
+    visible — silently swallowing the click is what caused the
+    reported bug.
+    """
+    src = _build_model([("a", "cnn.com"), ("b", "cnn.com")], mode=ClassifierMode.BALANCED)
+    src.set_all_selected(selected=False)
+    site = BySiteModel(src)
+    idx = site.index(0, 0)
+    site.setData(idx, Qt.CheckState.PartiallyChecked.value, Qt.ItemDataRole.CheckStateRole)
+    cnn = site.site_at(0)
+    assert cnn is not None
+    assert set(cnn.rows).issubset(src.selected_rows())
+
+
 def test_select_site_rows_is_a_no_op_on_protected_site():
     src = _build_model(
         [("a", "gmail.com")],
