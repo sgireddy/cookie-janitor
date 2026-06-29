@@ -86,12 +86,136 @@ def test_model_renders_decisions(qtbot, tmp_path: Path, monkeypatch):
 
 
 def test_main_window_handles_no_profiles(qtbot, monkeypatch):
+    # Now that the GUI scans three browser families, the empty-state has
+    # to come up only when ALL of them return nothing.
+    from cookie_janitor.readers import chromium as chromium_reader
+    from cookie_janitor.readers import safari as safari_reader
+
     monkeypatch.setattr(firefox_reader, "discover_profiles", lambda: [])
+    monkeypatch.setattr(chromium_reader, "discover_profiles", lambda: [])
+    monkeypatch.setattr(safari_reader, "discover_profiles", lambda: [])
     window = MainWindow()
     qtbot.addWidget(window)
     # No crash, friendly empty-state message rendered, delete disabled.
     assert not window._delete_btn.isEnabled()
-    assert "couldn't find a firefox profile" in window._status.text().lower()
+    msg = window._status.text().lower()
+    # The empty-state copy must NOT name a single browser exclusively —
+    # the pre-0.5 wording ("install Firefox") was actively misleading
+    # for users who already had Edge/Chrome/Safari installed.
+    assert "couldn't find" in msg
+    assert "firefox" in msg and "chrome" in msg and "edge" in msg
+
+
+def test_main_window_lists_chromium_and_safari_profiles_in_dropdown(
+    qtbot, tmp_path: Path, monkeypatch
+):
+    """Regression for the question 'does the UI support Chrome and Safari?':
+    discover Firefox + Chromium + Safari fixtures and verify all three
+    end up as separate items in the profile dropdown.
+
+    We stub each reader's ``discover_profiles`` so the test is hermetic
+    and runs identically on any OS — what we care about here is the
+    *wiring*, not the per-browser discovery logic (that's tested in
+    test_chromium_reader.py and test_safari_reader.py).
+    """
+    from cookie_janitor.model.cookie import BrowserKind, Profile
+    from cookie_janitor.readers import chromium as chromium_reader
+    from cookie_janitor.readers import safari as safari_reader
+
+    # Minimal Firefox profile with one classifiable cookie so the
+    # MainWindow can drive _on_profile_changed without errors.
+    fake_home = _make_synthetic_profile(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setattr(firefox_reader, "_platform_key", lambda: "linux")
+    monkeypatch.setattr(firefox_reader, "is_running", lambda _kind: False)
+
+    # Fake Chrome / Edge / Safari profiles — they only need to exist as
+    # Profile objects in the list; we stub read_cookies for each so the
+    # window doesn't try to open real SQLite/binarycookies files.
+    chrome_db = tmp_path / "chrome-Cookies"
+    chrome_db.write_bytes(b"not really sqlite, but never read")
+    edge_db = tmp_path / "edge-Cookies"
+    edge_db.write_bytes(b"")
+    safari_db = tmp_path / "Cookies.binarycookies"
+    safari_db.write_bytes(b"")
+
+    fake_profiles = [
+        Profile(
+            browser=BrowserKind.CHROMIUM,
+            vendor="Google Chrome",
+            profile_name="Default",
+            cookies_db_path=chrome_db,
+            is_running=False,
+        ),
+        Profile(
+            browser=BrowserKind.CHROMIUM,
+            vendor="Microsoft Edge",
+            profile_name="Default",
+            cookies_db_path=edge_db,
+            is_running=False,
+        ),
+        Profile(
+            browser=BrowserKind.SAFARI,
+            vendor="Safari",
+            profile_name="Default",
+            cookies_db_path=safari_db,
+            is_running=False,
+        ),
+    ]
+    monkeypatch.setattr(chromium_reader, "discover_profiles", lambda: fake_profiles[:2])
+    monkeypatch.setattr(safari_reader, "discover_profiles", lambda: fake_profiles[2:])
+    # We don't need real reads — empty cookie lists keep the table happy.
+    monkeypatch.setattr(chromium_reader, "read_cookies", lambda _p: [])
+    monkeypatch.setattr(safari_reader, "read_cookies", lambda _p: [])
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    labels = [
+        window._profile_box.itemText(i)
+        for i in range(window._profile_box.count())
+    ]
+    # Every supported family must appear in the dropdown, identifiable
+    # by its vendor string. We don't assert the exact order — that's
+    # the dispatcher's contract (Firefox first, then Chromium, then
+    # Safari) and is pinned in test_dispatchers.py.
+    joined = " | ".join(labels)
+    assert "Firefox" in joined
+    assert "Google Chrome" in joined
+    assert "Microsoft Edge" in joined
+    assert "Safari" in joined
+
+
+def test_main_window_disables_delete_for_safari_profile(
+    qtbot, tmp_path: Path, monkeypatch
+):
+    """Selecting a Safari profile in the dropdown must disable the
+    delete button and show the read-only banner. This is the GUI half
+    of the writers.supports_delete contract.
+    """
+    from cookie_janitor.model.cookie import BrowserKind, Profile
+    from cookie_janitor.readers import chromium as chromium_reader
+    from cookie_janitor.readers import safari as safari_reader
+
+    safari_db = tmp_path / "Cookies.binarycookies"
+    safari_db.write_bytes(b"")
+    safari_profile = Profile(
+        browser=BrowserKind.SAFARI,
+        vendor="Safari",
+        profile_name="Default",
+        cookies_db_path=safari_db,
+        is_running=False,
+    )
+    monkeypatch.setattr(firefox_reader, "discover_profiles", lambda: [])
+    monkeypatch.setattr(chromium_reader, "discover_profiles", lambda: [])
+    monkeypatch.setattr(safari_reader, "discover_profiles", lambda: [safari_profile])
+    monkeypatch.setattr(safari_reader, "read_cookies", lambda _p: [])
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert not window._delete_btn.isEnabled()
+    assert "read-only" in window._running_banner.text().lower()
+    assert "safari" in window._delete_btn.toolTip().lower()
 
 
 def test_main_window_renders_real_decisions(qtbot, tmp_path: Path, monkeypatch):

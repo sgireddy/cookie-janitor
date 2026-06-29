@@ -274,10 +274,16 @@ class MainWindow(QMainWindow):
         self._profile_box.blockSignals(True)
         self._profile_box.clear()
         if not self._profiles:
-            self._profile_box.addItem("No Firefox profile found")
+            # Pre-0.5 this said "no Firefox profile found", which was a
+            # lie after the Chromium + Safari readers shipped. Keep the
+            # copy generic so a user with only Edge/Chrome/Safari isn't
+            # told to install Firefox.
+            self._profile_box.addItem("No browser profile found")
             self._set_status_empty(
-                "Cookie Janitor couldn't find a Firefox profile on this Mac yet."
-                " Install Firefox and visit a few sites, then click Refresh."
+                "Cookie Janitor couldn't find any supported browser profile"
+                " on this machine. Install one of Firefox, Chrome, Edge,"
+                " Brave, Vivaldi, Opera, Arc, or (on macOS) Safari, visit"
+                " a few sites, then click Refresh."
             )
         else:
             for p in self._profiles:
