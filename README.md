@@ -74,6 +74,21 @@ Allow-list matches always win.
   sandbox prevents any app from reading another app's cookie store, by
   design. We will not pretend otherwise.
 
+## Browser support
+
+| Family | Read (scan + classify) | Delete | Notes |
+|---|---|---|---|
+| **Firefox-family** (Firefox, LibreWolf, Waterfox, Floorp, Zen) | ✅ | ✅ | Plain SQLite at `cookies.sqlite`; cookie values are unencrypted. |
+| **Chromium-family** (Chrome, Edge, Brave, Vivaldi, Opera, Arc, Chromium) | ✅ | ✅ | Cookie values are encrypted (Keychain / DPAPI / libsecret). We don't decrypt them — the classifier only needs names, domains, expiries, and flags, all of which are stored in plaintext. The delete path doesn't need to decrypt either. |
+| **Safari** (macOS only) | ✅ | ⏳ | Reads `Cookies.binarycookies` directly. Deletion is intentionally **not** shipped yet (see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the reasoning); the GUI greys out the delete button on Safari profiles and shows a banner. Use Safari's own *Settings → Privacy → Manage Website Data* to delete in the meantime. |
+
+The reader and writer dispatchers are at
+[`src/cookie_janitor/readers/__init__.py`](src/cookie_janitor/readers/__init__.py)
+and
+[`src/cookie_janitor/writers/__init__.py`](src/cookie_janitor/writers/__init__.py).
+Adding a new family is: one reader module + one writer module + one
+``if`` branch in each dispatcher.
+
 ## How it stays trustworthy
 
 - **Apache-2.0** licensed. Every line is auditable.

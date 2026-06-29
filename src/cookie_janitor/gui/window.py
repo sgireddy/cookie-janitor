@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cookie_janitor import __version__
+from cookie_janitor import __version__, readers, writers
 from cookie_janitor.classify.cookie_db import CookieDatabase, load_database
 from cookie_janitor.model.cookie import Decision, Profile, Verdict
 from cookie_janitor.policy.allowlist import (
@@ -32,8 +32,6 @@ from cookie_janitor.policy.allowlist import (
     remove_from_allowlist,
 )
 from cookie_janitor.policy.decide import ClassifierMode, UserPolicy, decide
-from cookie_janitor.readers import firefox as firefox_reader
-from cookie_janitor.writers.firefox import delete_cookies
 
 from .allowlist_dialog import AllowlistDialog
 from .by_site_model import BySiteModel
@@ -50,7 +48,7 @@ def _load_cookie_db() -> CookieDatabase:
 
 
 def _scan_profiles() -> list[Profile]:
-    return firefox_reader.discover_profiles()
+    return readers.discover_all_profiles()
 
 
 def _build_policy(mode: ClassifierMode) -> UserPolicy:
@@ -66,7 +64,7 @@ def _decisions_for(
     profile: Profile, db: CookieDatabase, mode: ClassifierMode
 ) -> list[Decision]:
     policy = _build_policy(mode)
-    cookies = firefox_reader.read_cookies(profile)
+    cookies = readers.read_cookies(profile)
     return [decide(c, policy=policy, cookie_db=db) for c in cookies]
 
 
@@ -313,12 +311,27 @@ class MainWindow(QMainWindow):
         )
         self._update_running_banner(profile)
 
-        self._delete_btn.setEnabled(not profile.is_running and bool(decisions))
-        tip = (
-            "Quit Firefox first, then click Refresh."
-            if profile.is_running
-            else "Delete the ticked cookies. A backup is made first."
+        # Three reasons the delete button might be disabled, in order:
+        #   1. This browser family has no writer yet (Safari today).
+        #   2. The browser is currently running.
+        #   3. There are no cookies to delete.
+        can_write = writers.supports_delete(profile.browser)
+        self._delete_btn.setEnabled(
+            can_write and not profile.is_running and bool(decisions)
         )
+        if not can_write:
+            tip = (
+                # ruff S608 triggers on any f-string containing the word
+                # "delete"; this is plain UI copy, not a SQL query.
+                f"Cookie Janitor can read {profile.vendor} cookies but"  # noqa: S608
+                " doesn't yet delete them. Use this view to audit what's"
+                " there; delete from inside Safari's own Settings →"
+                " Privacy → Manage Website Data."
+            )
+        elif profile.is_running:
+            tip = f"Quit {profile.vendor} first, then click Refresh."
+        else:
+            tip = "Delete the ticked cookies. A backup is made first."
         self._delete_btn.setToolTip(tip)
 
     def _install_model(self, model: CookiesModel, *, audit_only: bool) -> None:
@@ -353,14 +366,33 @@ class MainWindow(QMainWindow):
         self._site_proxy.setFilterFixedString(text)
 
     def _update_running_banner(self, profile: Profile) -> None:
-        """Make the 'browser is running' constraint visible without a hover."""
+        """Surface constraints (browser running / read-only browser) above the table.
+
+        Two situations show a banner; if both apply we explain both so
+        the user can fix the running-browser one first and then see the
+        read-only one is permanent.
+        """
+        messages: list[str] = []
+        if not writers.supports_delete(profile.browser):
+            # ruff RUF001 flags the U+2139 "information source" glyph as
+            # an ambiguous lookalike for 'i'; suppressing here because
+            # the emoji is intentional banner iconography matching the
+            # ⚠️ warning style below.
+            messages.append(
+                f"\u2139\ufe0f  <b>{profile.vendor} is currently read-only in"
+                f" Cookie Janitor.</b> You can audit cookies here, but"
+                f" deletion isn't yet supported for {profile.vendor}."
+                f" (Coming in a future release.)"
+            )
         if profile.is_running:
-            self._running_banner.setText(
+            messages.append(
                 f"⚠️  <b>{profile.vendor} is running.</b> Cookies can't be deleted"
                 f" while the browser holds the database. Quit {profile.vendor}"
                 " completely (⌘Q on macOS / File → Exit on Windows / Linux),"
                 " then click <b>Refresh</b>."
             )
+        if messages:
+            self._running_banner.setText("<br>".join(messages))
             self._running_banner.show()
         else:
             self._running_banner.hide()
@@ -443,7 +475,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            result = delete_cookies(profile, [d.cookie for d in selected], dry_run=False)
+            result = writers.delete_cookies(
+                profile, [d.cookie for d in selected], dry_run=False
+            )
         except Exception as exc:
             log.exception("delete_cookies failed")
             QMessageBox.critical(

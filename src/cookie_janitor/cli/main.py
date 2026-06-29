@@ -28,7 +28,7 @@ from cookie_janitor.model.cookie import (
 )
 from cookie_janitor.policy.allowlist import load_allowlist
 from cookie_janitor.policy.decide import ClassifierMode, UserPolicy, decide
-from cookie_janitor.readers import firefox as firefox_reader
+from cookie_janitor.readers import discover_all_profiles, read_cookies
 from cookie_janitor.safety.privilege import (
     PrivilegedExecutionError,
     assert_not_privileged,
@@ -81,19 +81,15 @@ def _load_bundled_cookie_db() -> CookieDatabase:
 
 
 def _discover_all_profiles(browser: BrowserKind | None) -> list[Profile]:
-    profiles: list[Profile] = []
-    if browser in (None, BrowserKind.FIREFOX):
-        profiles.extend(firefox_reader.discover_profiles())
-    # Chromium / Safari readers will be wired in subsequent milestones.
-    return profiles
+    """Wrapper around the readers' dispatcher so the CLI keeps a single
+    entry point (and so callers can be unit-tested with a stubbed
+    dispatcher if needed in the future).
+    """
+    return discover_all_profiles(only=browser)
 
 
 def _classify_profile(profile: Profile, policy: UserPolicy, db: CookieDatabase) -> ScanResult:
-    if profile.browser is BrowserKind.FIREFOX:
-        cookies = firefox_reader.read_cookies(profile)
-    else:  # pragma: no cover - other browsers not yet implemented
-        raise NotImplementedError(profile.browser)
-
+    cookies = read_cookies(profile)
     decisions: list[Decision] = [decide(c, policy=policy, cookie_db=db) for c in cookies]
     return ScanResult(profile=profile, decisions=tuple(decisions))
 
@@ -270,7 +266,7 @@ def restore(
     """
     from pathlib import Path as _Path
 
-    from cookie_janitor.writers.firefox import restore_from_backup
+    from cookie_janitor.writers import restore_from_backup
 
     bp = _Path(backup_path).expanduser().resolve()
     if not bp.is_file():
@@ -287,18 +283,23 @@ def restore(
             err=True,
         )
         raise typer.Exit(code=2) from None
-    if browser_name != BrowserKind.FIREFOX.value:
+    try:
+        browser_kind = BrowserKind(browser_name)
+    except ValueError:
         typer.echo(
-            f"ERROR: restore for {browser_name!r} is not implemented yet",
+            f"ERROR: backup path browser segment {browser_name!r} is not a"
+            f" recognised browser family (expected one of:"
+            f" {[b.value for b in BrowserKind]}).",
             err=True,
         )
-        raise typer.Exit(code=2)
+        raise typer.Exit(code=2) from None
 
-    profiles = firefox_reader.discover_profiles()
+    profiles = discover_all_profiles(only=browser_kind)
     matches = [p for p in profiles if p.profile_name == profile_name]
     if not matches:
         typer.echo(
-            f"ERROR: no Firefox profile named {profile_name!r} found on this machine",
+            f"ERROR: no {browser_kind.value} profile named {profile_name!r}"
+            f" found on this machine",
             err=True,
         )
         raise typer.Exit(code=2)
