@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTableView,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,12 +26,18 @@ from PySide6.QtWidgets import (
 from cookie_janitor import __version__
 from cookie_janitor.classify.cookie_db import CookieDatabase, load_database
 from cookie_janitor.model.cookie import Decision, Profile, Verdict
-from cookie_janitor.policy.allowlist import add_to_allowlist, load_allowlist
+from cookie_janitor.policy.allowlist import (
+    add_to_allowlist,
+    load_allowlist,
+    remove_from_allowlist,
+)
 from cookie_janitor.policy.decide import ClassifierMode, UserPolicy, decide
 from cookie_janitor.readers import firefox as firefox_reader
 from cookie_janitor.writers.firefox import delete_cookies
 
 from .allowlist_dialog import AllowlistDialog
+from .by_site_model import BySiteModel
+from .mode_panel import ModePanel
 from .model import CookiesModel
 
 log = logging.getLogger(__name__)
@@ -108,7 +115,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         outer = QVBoxLayout(central)
 
-        # Header: profile picker + refresh + mode selector.
+        # Row 1: profile picker + refresh.
         header = QHBoxLayout()
         header.addWidget(QLabel("Profile:"))
         self._profile_box = QComboBox()
@@ -118,29 +125,13 @@ class MainWindow(QMainWindow):
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self._refresh_profiles)
         header.addWidget(self._refresh_btn)
-        header.addSpacing(20)
-        header.addWidget(QLabel("Mode:"))
-        self._mode_box = QComboBox()
-        self._mode_box.addItem("Conservative — only known trackers", ClassifierMode.CONSERVATIVE)
-        self._mode_box.addItem("Balanced — adds tracker domains & names", ClassifierMode.BALANCED)
-        self._mode_box.addItem(
-            "Aggressive — also deletes long-lived & unknown", ClassifierMode.AGGRESSIVE
-        )
-        self._mode_box.setCurrentIndex(1)  # BALANCED default
-        self._mode_box.setToolTip(
-            "Conservative: tightest — only the Open Cookie Database's analytics "
-            "and marketing entries are deleted.\n"
-            "Balanced (default): also deletes cookies from known third-party "
-            "tracker domains, tracking subdomain labels (analytics., tracking., …), "
-            "and well-known tracker cookie names (_ga, _fbp, MUID, …).\n"
-            "Aggressive: also deletes long-lived non-auth cookies and unknown "
-            "cookies. Auth-shape names (session, token, login, csrf, __Host-…) "
-            "are still kept."
-        )
-        self._mode_box.currentIndexChanged.connect(self._on_mode_changed)
-        header.addWidget(self._mode_box)
         header.addStretch(1)
         outer.addLayout(header)
+
+        # Row 2: mode panel — six radio buttons with info (ⓘ) icons.
+        self._mode_panel = ModePanel(initial=ClassifierMode.BALANCED)
+        self._mode_panel.modeChanged.connect(self._on_mode_changed)
+        outer.addWidget(self._mode_panel)
 
         # Running-browser warning banner (hidden when profile isn't running).
         self._running_banner = QLabel("")
@@ -153,16 +144,22 @@ class MainWindow(QMainWindow):
         self._running_banner.hide()
         outer.addWidget(self._running_banner)
 
-        # Search box.
+        # Search box. Filters whichever tab is currently visible.
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search:"))
         self._search = QLineEdit()
         self._search.setPlaceholderText("Filter by domain, name, or reason…")
-        self._search.textChanged.connect(self._proxy.setFilterFixedString)
+        self._search.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self._search)
         outer.addLayout(search_row)
 
-        # The table.
+        # Tabs: "All cookies" (existing flat list) and "By site" (groupped).
+        self._tabs = QTabWidget()
+
+        # --- All-cookies tab ---
+        all_tab = QWidget()
+        all_layout = QVBoxLayout(all_tab)
+        all_layout.setContentsMargins(0, 0, 0, 0)
         self._table = QTableView()
         self._table.setModel(self._proxy)
         self._table.setSortingEnabled(True)
@@ -173,7 +170,62 @@ class MainWindow(QMainWindow):
         self._table.setWordWrap(True)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_context_menu)
-        outer.addWidget(self._table, stretch=1)
+        all_layout.addWidget(self._table)
+        self._tabs.addTab(all_tab, "All cookies")
+
+        # --- By-site tab ---
+        site_tab = QWidget()
+        site_layout = QVBoxLayout(site_tab)
+        site_layout.setContentsMargins(0, 0, 0, 0)
+        site_layout.addWidget(
+            QLabel(
+                "<small>Tick a site to mark <i>all</i> its cookies for"
+                " deletion. Allow-listed sites are shown but can't be"
+                " ticked — remove the protection in <b>File → Allow"
+                " list…</b> first if you really want to clear them."
+                "</small>"
+            )
+        )
+        site_action_row = QHBoxLayout()
+        self._site_select_btn = QPushButton("Select all listed sites")
+        self._site_select_btn.setToolTip(
+            "Tick every site that isn't protected by your allow list."
+        )
+        self._site_select_btn.clicked.connect(self._on_select_all_sites)
+        site_action_row.addWidget(self._site_select_btn)
+        self._site_protect_btn = QPushButton("Add selected site to allow list")
+        self._site_protect_btn.setToolTip(
+            "Take the currently highlighted row and add its host to"
+            " your allow list."
+        )
+        self._site_protect_btn.clicked.connect(self._on_protect_selected_site)
+        site_action_row.addWidget(self._site_protect_btn)
+        site_action_row.addStretch(1)
+        site_layout.addLayout(site_action_row)
+        self._site_table = QTableView()
+        self._site_table.setSortingEnabled(True)
+        self._site_table.setAlternatingRowColors(True)
+        self._site_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self._site_table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self._site_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        self._site_table.horizontalHeader().setStretchLastSection(True)
+        self._site_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._site_table.customContextMenuRequested.connect(self._on_site_context_menu)
+        self._site_proxy = QSortFilterProxyModel(self)
+        self._site_proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._site_proxy.setFilterKeyColumn(1)  # filter on host column
+        self._site_table.setModel(self._site_proxy)
+        site_layout.addWidget(self._site_table)
+        self._tabs.addTab(site_tab, "By site")
+
+        # The by-site model is rebuilt every time we re-decide. Set in
+        # _on_profile_changed so it always points at the current
+        # CookiesModel.
+        self._site_model: BySiteModel | None = None
+
+        outer.addWidget(self._tabs, stretch=1)
 
         # Footer: status + selection helpers + delete.
         footer = QHBoxLayout()
@@ -255,15 +307,10 @@ class MainWindow(QMainWindow):
             )
             decisions = []
 
-        self._model = CookiesModel(decisions)
-        self._proxy.setSourceModel(self._model)
-        self._table.setColumnWidth(0, 30)
-        self._table.setColumnWidth(1, 130)
-        self._table.setColumnWidth(2, 110)
-        self._table.setColumnWidth(3, 200)
-        self._table.setColumnWidth(4, 180)
-        self._table.setColumnWidth(5, 100)
-        self._update_status()
+        self._install_model(
+            CookiesModel(decisions),
+            audit_only=self._mode is ClassifierMode.AUDIT_ONLY,
+        )
         self._update_running_banner(profile)
 
         self._delete_btn.setEnabled(not profile.is_running and bool(decisions))
@@ -273,6 +320,37 @@ class MainWindow(QMainWindow):
             else "Delete the ticked cookies. A backup is made first."
         )
         self._delete_btn.setToolTip(tip)
+
+    def _install_model(self, model: CookiesModel, *, audit_only: bool) -> None:
+        """Wire a freshly built CookiesModel into both tabs and refresh.
+
+        In audit-only mode we explicitly clear any default selection — the
+        whole point of that mode is "I haven't decided yet".
+        """
+        if audit_only:
+            model.set_all_selected(selected=False)
+        self._model = model
+        self._proxy.setSourceModel(model)
+        # The by-site model observes the cookies model; rebuild it now.
+        self._site_model = BySiteModel(model)
+        self._site_proxy.setSourceModel(self._site_model)
+        self._table.setColumnWidth(0, 30)
+        self._table.setColumnWidth(1, 130)
+        self._table.setColumnWidth(2, 110)
+        self._table.setColumnWidth(3, 200)
+        self._table.setColumnWidth(4, 180)
+        self._table.setColumnWidth(5, 100)
+        self._site_table.setColumnWidth(0, 40)
+        self._site_table.setColumnWidth(1, 280)
+        self._site_table.setColumnWidth(2, 80)
+        self._site_table.setColumnWidth(3, 120)
+        self._site_table.setColumnWidth(4, 100)
+        self._update_status()
+
+    def _on_search_changed(self, text: str) -> None:
+        """Filter both tabs' proxies with the same string."""
+        self._proxy.setFilterFixedString(text)
+        self._site_proxy.setFilterFixedString(text)
 
     def _update_running_banner(self, profile: Profile) -> None:
         """Make the 'browser is running' constraint visible without a hover."""
@@ -405,7 +483,7 @@ class MainWindow(QMainWindow):
 
     # --- Mode + allow-list -------------------------------------------------
 
-    def _on_mode_changed(self, idx: int) -> None:
+    def _on_mode_changed(self, new_mode: ClassifierMode) -> None:
         """Re-classify the current scan against the new mode.
 
         We deliberately re-decide rather than re-read: the cookies on disk
@@ -413,10 +491,16 @@ class MainWindow(QMainWindow):
         would be wasteful (and might surprise the user if it picked up
         intervening browser activity).
         """
-        new_mode = self._mode_box.itemData(idx)
-        if not isinstance(new_mode, ClassifierMode) or new_mode is self._mode:
+        if new_mode is self._mode:
             return
         self._mode = new_mode
+        self._reclassify_current_view()
+
+    def _reclassify_current_view(self) -> None:
+        """Re-decide every cookie currently in the model with the live
+        policy + allow-list. Used after a mode change OR an allow-list
+        edit. Cheap because we already have the cookies in memory.
+        """
         if self._model is None:
             return
         existing = list(self._model.decisions())
@@ -427,20 +511,64 @@ class MainWindow(QMainWindow):
         except Exception:
             log.exception("Re-decide failed for mode=%s", self._mode)
             return
-        self._model = CookiesModel(redecided)
-        self._proxy.setSourceModel(self._model)
-        self._update_status()
+        self._install_model(
+            CookiesModel(redecided),
+            audit_only=self._mode is ClassifierMode.AUDIT_ONLY,
+        )
 
     def _show_allowlist(self) -> None:
         dlg = AllowlistDialog(self)
         accepted = dlg.exec() == AllowlistDialog.DialogCode.Accepted
-        if accepted and self._model is not None:
-            # Allow-list changed → re-decide current view.
-            existing = list(self._model.decisions())
-            redecided = _redecide(existing, self._db, self._mode)
-            self._model = CookiesModel(redecided)
-            self._proxy.setSourceModel(self._model)
-            self._update_status()
+        if accepted:
+            self._reclassify_current_view()
+
+    # --- By-site tab actions -----------------------------------------------
+
+    def _on_select_all_sites(self) -> None:
+        """Tick every cookie row whose site isn't protected by the
+        allow-list. Equivalent to ticking every row in the by-site tab.
+        """
+        if self._site_model is None or self._model is None:
+            return
+        all_rows: list[int] = []
+        for i in range(self._site_model.rowCount()):
+            site = self._site_model.site_at(i)
+            if site is None or site.on_allow_list:
+                continue
+            all_rows.extend(site.rows)
+        self._model.set_selected_for_rows(all_rows, selected=True)
+
+    def _on_protect_selected_site(self) -> None:
+        """Add the host(s) of the selected by-site row(s) to the allow-list,
+        then re-decide so the protected rows flip to KEEP.
+        """
+        if self._site_model is None:
+            return
+        sel = self._site_table.selectionModel()
+        hosts: list[str] = []
+        for proxy_index in sel.selectedRows():
+            src_index = self._site_proxy.mapToSource(proxy_index)
+            site = self._site_model.site_at(src_index.row())
+            if site is not None and not site.on_allow_list:
+                hosts.append(site.host)
+        if not hosts:
+            QMessageBox.information(
+                self,
+                "Nothing to protect",
+                "Highlight one or more sites in the table first.",
+            )
+            return
+        try:
+            for h in hosts:
+                add_to_allowlist(h)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Couldn't update allow-list",
+                f"Cookie Janitor couldn't update the allow-list:\n\n{exc}",
+            )
+            return
+        self._reclassify_current_view()
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         if self._model is None:
@@ -468,6 +596,52 @@ class MainWindow(QMainWindow):
                 menu.addAction(broaden)
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
+    def _on_site_context_menu(self, pos: QPoint) -> None:
+        if self._site_model is None:
+            return
+        proxy_index = self._site_table.indexAt(pos)
+        if not proxy_index.isValid():
+            return
+        src_index = self._site_proxy.mapToSource(proxy_index)
+        site = self._site_model.site_at(src_index.row())
+        if site is None:
+            return
+        menu = QMenu(self._site_table)
+        if site.on_allow_list:
+            unprotect = QAction(
+                f"Remove {site.host} from allow list (will allow cleaning)", menu
+            )
+            unprotect.triggered.connect(lambda: self._allowlist_remove(site.host))
+            menu.addAction(unprotect)
+        else:
+            protect = QAction(f"Always keep cookies on {site.host}", menu)
+            protect.triggered.connect(lambda: self._allowlist_add(site.host))
+            menu.addAction(protect)
+            tick_only = QAction(
+                f"Tick every cookie on {site.host} for deletion", menu
+            )
+            site_row = src_index.row()
+
+            def _tick(row: int = site_row) -> None:
+                if self._site_model is not None:
+                    self._site_model.select_site_rows(row, selected=True)
+
+            tick_only.triggered.connect(_tick)
+            menu.addAction(tick_only)
+        menu.exec(self._site_table.viewport().mapToGlobal(pos))
+
+    def _allowlist_remove(self, host: str) -> None:
+        try:
+            remove_from_allowlist(host)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Couldn't update allow-list",
+                f"Cookie Janitor couldn't remove {host!r} from the allow-list:\n\n{exc}",
+            )
+            return
+        self._reclassify_current_view()
+
     def _allowlist_add(self, host: str) -> None:
         try:
             add_to_allowlist(host)
@@ -478,11 +652,4 @@ class MainWindow(QMainWindow):
                 f"Cookie Janitor couldn't add {host!r} to the allow-list:\n\n{exc}",
             )
             return
-        # Re-decide current view so the affected rows flip to Keep.
-        if self._model is None:
-            return
-        existing = list(self._model.decisions())
-        redecided = _redecide(existing, self._db, self._mode)
-        self._model = CookiesModel(redecided)
-        self._proxy.setSourceModel(self._model)
-        self._update_status()
+        self._reclassify_current_view()

@@ -6,23 +6,38 @@ over every other rule").
 
 Modes
 -----
-Three classifier modes, selected by ``UserPolicy.mode``:
+Six classifier modes, selected by ``UserPolicy.mode``. They form a
+monotonic ladder: each level fires every rule of the level below it.
+
+* ``AUDIT_ONLY`` — classify cookies and explain them, but recommend
+  KEEP for everything. Use this to inspect what's there without any
+  pressure to delete. (The GUI also disables the default-tick on the
+  delete column when this mode is active.)
 
 * ``CONSERVATIVE`` — the original 0.2.x behavior. Only deletes cookies
   the Open Cookie Database explicitly classifies as analytics/marketing.
-  Anything else is kept. Recommended for users who'd rather click
-  "delete" manually than risk a logout.
+  Anything else is kept.
 
 * ``BALANCED`` *(default)* — adds three high-precision rules on top of
   Conservative: known third-party tracker domain, tracker subdomain
-  label, and tracker cookie-name. Designed to clear obvious junk without
-  touching anything that could plausibly be a session.
+  label, and tracker cookie-name.
 
-* ``AGGRESSIVE`` — Balanced plus two heuristics that have higher
+* ``STRICT`` — Balanced plus: also deletes the *Performance* category
+  from the Open Cookie Database (CDN preference cookies, AB-test
+  buckets, etc). Many users consider these benign; others find them
+  invasive enough to clean.
+
+* ``AGGRESSIVE`` — Strict plus two heuristics that have higher
   false-positive risk in exchange for catching the long tail: long-lived
   non-session cookies that don't look like auth, and an unknown→delete
   default. The auth-shape exception (``__Host-…``, ``…session…``,
   ``…token…``, etc.) prevents the worst of the false positives.
+
+* ``SCORCHED_EARTH`` — delete everything except (a) cookies on a domain
+  in the user allow-list, and (b) cookies whose name starts with the
+  RFC 6265bis security prefixes ``__Host-`` or ``__Secure-``. The
+  auth-substring exception does NOT apply here: even ``session_id``
+  goes. Use this when you want to start over.
 
 Auditors: every rule below has both an integer "priority" (so the order
 is grep-able from the code) and a single ``Decision`` construction site.
@@ -54,13 +69,33 @@ from cookie_janitor.model.cookie import (
 class ClassifierMode(enum.StrEnum):
     """How aggressive the classifier should be.
 
-    Order is also a "strength" ordering — every rule that fires in
-    ``CONSERVATIVE`` also fires in ``BALANCED`` and ``AGGRESSIVE``.
+    Order is also a "strength" ordering — every rule that fires at level
+    N also fires at level N+1. Comparisons via ``order()`` make this
+    explicit; do not compare via ``<`` on the enum itself.
     """
 
+    AUDIT_ONLY = "audit-only"
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
+    STRICT = "strict"
     AGGRESSIVE = "aggressive"
+    SCORCHED_EARTH = "scorched-earth"
+
+    def order(self) -> int:
+        """Numeric position on the ladder, 0..5. Used for level comparisons."""
+        return _MODE_ORDER[self]
+
+
+# Single source of truth for the ladder order. Adding a mode means
+# adding it here too — mypy will flag the missing key.
+_MODE_ORDER: dict[ClassifierMode, int] = {
+    ClassifierMode.AUDIT_ONLY: 0,
+    ClassifierMode.CONSERVATIVE: 1,
+    ClassifierMode.BALANCED: 2,
+    ClassifierMode.STRICT: 3,
+    ClassifierMode.AGGRESSIVE: 4,
+    ClassifierMode.SCORCHED_EARTH: 5,
+}
 
 
 # Long-lived = "expires more than this far in the future". Aggressive
@@ -122,8 +157,10 @@ def decide(
     """
 
     mode = policy.mode
+    level = mode.order()
 
-    # 1. User keep-list (domain).
+    # 1. User keep-list (domain). Fires in every mode INCLUDING
+    #    SCORCHED_EARTH — this is the user's most explicit override.
     for rule in policy.keep_domains:
         if _matches_domain(cookie.domain, rule):
             return Decision(
@@ -146,6 +183,41 @@ def decide(
             confidence=1.0,
         )
 
+    # 2a. RFC 6265bis security prefixes (__Host-, __Secure-) are an
+    #     explicit browser-level promise about cookie shape — only a
+    #     security-grade cookie can use them. Always KEEP these. This is
+    #     what saves scorched-earth from logging the user out of every
+    #     site that uses modern auth.
+    lower_name = cookie.name.lower()
+    if lower_name.startswith(("__host-", "__secure-")):
+        prefix = "__Host-" if lower_name.startswith("__host-") else "__Secure-"
+        return Decision(
+            cookie=cookie,
+            verdict=Verdict.KEEP,
+            category=Category.FUNCTIONAL,
+            rationale=(
+                f"Cookie name uses the {prefix} security prefix, which is"
+                " reserved for auth-grade cookies (RFC 6265bis)."
+            ),
+            source="security-prefix",
+            confidence=1.0,
+        )
+
+    # ── SCORCHED_EARTH: everything past this point is DELETE ─────────────
+    # The two rules above are the only escape hatches.
+    if mode is ClassifierMode.SCORCHED_EARTH:
+        return Decision(
+            cookie=cookie,
+            verdict=Verdict.DELETE,
+            category=Category.UNKNOWN,
+            rationale=(
+                "Scorched-earth mode: deleting every cookie that isn't on"
+                " your allow-list or using the __Host-/__Secure- prefix."
+            ),
+            source="scorched-earth",
+            confidence=0.5,
+        )
+
     # 3. User delete-list (domain).
     for rule in policy.delete_domains:
         if _matches_domain(cookie.domain, rule):
@@ -158,17 +230,54 @@ def decide(
                 confidence=1.0,
             )
 
-    # 4. Open Cookie Database lookup. Same in every mode.
+    # ── AUDIT_ONLY: explain, but never recommend delete ─────────────────
+    if mode is ClassifierMode.AUDIT_ONLY:
+        # We still want to *categorize* via the Open Cookie Database so
+        # the user sees a meaningful Category column, but the verdict is
+        # forced to KEEP and the rationale says why.
+        category = Category.UNKNOWN
+        why_extra = ""
+        if cookie_db is not None:
+            desc = cookie_db.lookup(cookie.name, cookie.domain)
+            if desc is not None:
+                category = desc.category
+                why_extra = (
+                    f" The Open Cookie Database classifies it as {desc.category.value}."
+                )
+        return Decision(
+            cookie=cookie,
+            verdict=Verdict.KEEP,
+            category=category,
+            rationale=(
+                "Audit-only mode: nothing will be selected for deletion."
+                + why_extra
+            ),
+            source="audit-only",
+            confidence=1.0,
+        )
+
+    # 4. Open Cookie Database lookup. Conservative + Balanced + Strict +
+    #    Aggressive all consult it; Strict expands the delete-set to
+    #    include Performance.
     if cookie_db is not None:
         desc = cookie_db.lookup(cookie.name, cookie.domain)
         if desc is not None:
-            in_delete_set = desc.category in policy.delete_categories
+            delete_set = policy.delete_categories
+            if mode.order() >= ClassifierMode.STRICT.order():
+                delete_set = delete_set | {Category.PERFORMANCE}
+            in_delete_set = desc.category in delete_set
             verdict = Verdict.DELETE if in_delete_set else Verdict.KEEP
             short_desc = desc.description.split(".", 1)[0].strip() if desc.description else ""
             why = (
                 f"Open Cookie Database classifies {cookie.name!r} as "
                 f"{desc.category.value}" + (f" ({short_desc})" if short_desc else "") + "."
             )
+            if (
+                in_delete_set
+                and desc.category is Category.PERFORMANCE
+                and mode is ClassifierMode.STRICT
+            ):
+                why += " Strict mode also clears performance cookies."
             return Decision(
                 cookie=cookie,
                 verdict=verdict,
@@ -178,8 +287,8 @@ def decide(
                 confidence=0.9,
             )
 
-    # -- Rules 5-8 fire only in BALANCED and AGGRESSIVE --
-    if mode is not ClassifierMode.CONSERVATIVE:
+    # -- Rules 5-8 fire in BALANCED and above --
+    if level >= ClassifierMode.BALANCED.order():
         # 5. Known third-party tracker domain.
         tracker = is_tracker_domain(cookie.domain)
         if tracker is not None:
@@ -196,14 +305,14 @@ def decide(
             )
 
         # 6. Tracking subdomain label (tracking.foo.com, analytics.bar.io, …).
-        label = has_tracking_subdomain_label(cookie.domain)
-        if label is not None:
+        sub_label = has_tracking_subdomain_label(cookie.domain)
+        if sub_label is not None:
             return Decision(
                 cookie=cookie,
                 verdict=Verdict.DELETE,
                 category=Category.ANALYTICS,
                 rationale=(
-                    f"The subdomain label {label!r} in {cookie.domain}"
+                    f"The subdomain label {sub_label!r} in {cookie.domain}"
                     " strongly indicates a tracking / analytics endpoint."
                 ),
                 source="tracker-subdomain-label",
@@ -243,7 +352,8 @@ def decide(
             )
 
     # 9. Session-cookie heuristic: no expiry, http-only, host-only ⇒ very
-    # likely a login/CSRF cookie. Keep. Fires in every mode.
+    # likely a login/CSRF cookie. Keep. Fires in every mode below
+    # SCORCHED_EARTH (which was already short-circuited above).
     if cookie.is_session and cookie.http_only and cookie.is_host_only:
         return Decision(
             cookie=cookie,
@@ -257,11 +367,9 @@ def decide(
             confidence=0.7,
         )
 
-    # -- AGGRESSIVE-only rules --
-    if mode is ClassifierMode.AGGRESSIVE:
-        # 10. Long-lived non-session non-auth cookie. The combination of
-        #     "no session shape", "no auth-looking name", and "lives for
-        #     many months" is overwhelmingly marketing/analytics.
+    # -- AGGRESSIVE-only rules (level 4) --
+    if level >= ClassifierMode.AGGRESSIVE.order():
+        # 10. Long-lived non-session non-auth cookie.
         if (
             _is_long_lived(cookie, now=now)
             and not cookie.http_only
@@ -281,9 +389,7 @@ def decide(
             )
 
         # 11. Unknown → DELETE in aggressive mode, but only if it doesn't
-        #     have an auth-shape name and isn't a session cookie. We're
-        #     biased toward keeping anything that could plausibly be a
-        #     login even in aggressive mode.
+        #     have an auth-shape name and isn't a session cookie.
         if has_auth_shape(cookie.name) is None and not cookie.is_session:
             return Decision(
                 cookie=cookie,

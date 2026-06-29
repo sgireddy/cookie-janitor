@@ -172,3 +172,38 @@ class CookiesModel(QAbstractTableModel):
         self.beginResetModel()
         self._selected = {i for i, d in enumerate(self._decisions) if d.verdict is Verdict.DELETE}
         self.endResetModel()
+
+    def selected_rows(self) -> frozenset[int]:
+        """Return a snapshot of which underlying-row indices are ticked."""
+        return frozenset(self._selected)
+
+    def set_selected_for_rows(self, rows: Sequence[int], *, selected: bool) -> None:
+        """Tick or untick a specific set of row indices in bulk.
+
+        Emits a single ``dataChanged`` over the affected rows so the
+        ``QTableView`` and any sibling proxies update once, not N times.
+        Used by the by-site view to commit a "select all cookies for
+        cnn.com" action back to the underlying model in O(rows).
+        """
+        if not rows:
+            return
+        sorted_rows = sorted(set(rows))
+        if selected:
+            self._selected.update(sorted_rows)
+        else:
+            self._selected.difference_update(sorted_rows)
+        first = self.index(sorted_rows[0], 0)
+        last = self.index(sorted_rows[-1], 0)
+        self.dataChanged.emit(first, last, [Qt.ItemDataRole.CheckStateRole])
+
+    def decisions_by_domain(self) -> dict[str, list[int]]:
+        """Return a mapping from cookie host → list of row indices.
+
+        Hosts are normalised (lowercased, no leading dot) so the by-site
+        view can group ``.cnn.com`` and ``cnn.com`` together.
+        """
+        out: dict[str, list[int]] = {}
+        for i, dec in enumerate(self._decisions):
+            host = dec.cookie.domain.lstrip(".").lower()
+            out.setdefault(host, []).append(i)
+        return out

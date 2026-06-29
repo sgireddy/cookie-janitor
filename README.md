@@ -24,20 +24,37 @@ A cross-platform desktop tool that:
 
 ### Classifier modes
 
-Pick the level of aggressiveness that matches your tolerance for the
-"wait, did I just get logged out?" risk:
+Six explicit choices on a single ladder, shown as radio buttons in the
+GUI with an ⓘ icon next to each. Pick the one that matches your
+tolerance for the "wait, did I just get logged out?" risk:
 
 | Mode | What it deletes | Recommended for |
 |---|---|---|
+| **Audit only** | Nothing. Lists and classifies cookies but never pre-selects them for deletion. | Inspecting your jar without commitment. |
 | **Conservative** | Only cookies the Open Cookie Database explicitly classifies as analytics/marketing. | Anyone who'd rather click "delete" manually than risk a logout. This was the 0.2.x behavior. |
 | **Balanced** *(default)* | Conservative, plus: known third-party tracker domains (doubleclick.net, facebook.net, hotjar.com, …), tracking subdomain labels (`tracking.`, `analytics.`, `ads.`, …), and well-known tracker cookie names (`_ga`, `_fbp`, `MUID`, `visid_incap_*`, `*_tracking`, …). | Most users. Clears the obvious junk without touching anything that could plausibly be a session. |
-| **Aggressive** | Balanced, plus: long-lived (>6 months) non-HttpOnly cookies whose name doesn't look like auth, and unknown cookies in general. Auth-shape names (`session`, `sessionid`, `csrf`, `token`, `__Host-*`, `__Secure-*`, …) are still kept. | Users who want a clean jar and are happy to re-login to the occasional obscure site. |
+| **Strict** | Balanced, plus: also deletes the Open Cookie Database's *Performance* category (CDN preferences, AB-test buckets, load-balancer affinity tokens). | Privacy-leaning users who don't need persisted UI prefs. |
+| **Aggressive** | Strict, plus: long-lived (>6 months) non-HttpOnly cookies whose name doesn't look like auth, and unknown cookies in general. Auth-shape names (`session`, `sessionid`, `csrf`, `token`, `__Host-*`, `__Secure-*`, …) are still kept. | Users who want a clean jar and are happy to re-login to the occasional obscure site. |
+| **Scorched earth** | Everything except cookies on your allow list and cookies whose name uses the `__Host-` / `__Secure-` security prefixes. | Starting over. Will log you out of almost every site that doesn't use modern security-prefix cookies. |
 
-Set the mode in the GUI's **Mode** dropdown, or via the CLI:
+Set the mode via the radio buttons at the top of the GUI, or via the CLI:
 
 ```bash
 cookie-janitor list --mode aggressive
 ```
+
+### The "By site" tab
+
+A second tab in the main window groups every cookie by host:
+
+* Tick a row to mark **all** of that site's cookies for deletion. Use
+  this for sites you don't have an account on — news sites, CDNs,
+  anything you visit anonymously.
+* Right-click any row → **Always keep cookies on `<host>`** to add it
+  to your allow list. Allow-listed rows render in green and refuse to
+  be ticked, so you can't accidentally nuke gmail.com.
+* The "**Add selected site to allow list**" button does the same for
+  multi-row selections.
 
 Sites you never want touched, regardless of mode, go in your **allow
 list** (File → Allow list… in the GUI, or edit

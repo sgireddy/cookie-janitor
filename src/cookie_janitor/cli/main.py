@@ -166,13 +166,15 @@ def list_cookies(
         typer.Option(
             "--mode",
             help=(
-                "Classifier mode. 'conservative' only deletes cookies that "
-                "the Open Cookie Database classifies as analytics/marketing. "
-                "'balanced' (default) also catches known third-party tracker "
-                "domains, tracking subdomain labels, and well-known tracker "
-                "cookie names. 'aggressive' additionally deletes long-lived "
-                "non-auth cookies and unknown cookies — auth-shape names "
-                "(session, token, csrf, __Host-…) are still kept."
+                "Classifier mode (a ladder, weakest to strongest). "
+                "audit-only: never recommends deletion. "
+                "conservative: only Open Cookie Database analytics/marketing. "
+                "balanced (default): also tracker domains, subdomain labels, "
+                "tracker cookie names. "
+                "strict: also Open Cookie Database performance. "
+                "aggressive: also long-lived non-auth and unknown. "
+                "scorched-earth: everything except allow-list and "
+                "__Host-/__Secure- prefixes."
             ),
         ),
     ] = ClassifierMode.BALANCED,
