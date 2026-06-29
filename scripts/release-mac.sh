@@ -118,17 +118,34 @@ step "Build DMG"
 dmg=""
 sha=""
 shopt -s nullglob
-existing=(dist/Cookie-Janitor-*.dmg)
 
-if [[ $rebuild -eq 0 && ${#existing[@]} -gt 0 ]]; then
-    dmg="${existing[0]}"
-    sha="${dmg}.sha256"
-    ok "reusing existing build: $dmg"
-    ok "(pass --rebuild to force a fresh build)"
-else
-    [[ $rebuild -eq 1 ]] && warn "--rebuild given, wiping dist/ and build/"
+# Match a DMG built for THIS version specifically. Earlier versions of
+# this script globbed Cookie-Janitor-*.dmg which is version-blind and
+# meant a stale v0.3.0 DMG sitting in dist/ would be silently reused
+# when releasing v0.4.0 — the user had to delete the file by hand.
+# The new build script writes Cookie-Janitor-${version}-${arch}.dmg so
+# we can match on the version prefix and ignore older artefacts.
+current=(dist/Cookie-Janitor-"$version"-*.dmg)
+stale=(dist/Cookie-Janitor-*.dmg)
+
+if [[ $rebuild -eq 1 ]]; then
+    warn "--rebuild given, wiping dist/ and build/"
     rm -rf dist build/cookie_janitor
+elif [[ ${#current[@]} -gt 0 ]]; then
+    # Only reuse if the existing DMG is for THIS version.
+    dmg="${current[0]}"
+    sha="${dmg}.sha256"
+    ok "reusing existing build for $version: $dmg"
+    ok "(pass --rebuild to force a fresh build)"
+elif [[ ${#stale[@]} -gt 0 ]]; then
+    # Older-version DMGs in dist/. Wipe them so we don't ship the wrong
+    # bits. This is the behavior change that fixes the reported bug.
+    warn "found stale DMG(s) from a different version, wiping dist/ and rebuilding:"
+    for old in "${stale[@]}"; do warn "    $old"; done
+    rm -rf dist build/cookie_janitor
+fi
 
+if [[ -z "$dmg" ]]; then
     # macOS still ships Bash 3.2 where "${arr[@]}" on an empty array
     # trips `set -u` ("unbound variable"). The `${arr[@]+...}` form
     # expands to nothing if the array is empty and to the array
@@ -138,9 +155,11 @@ else
     [[ -n "$identity"  ]] && build_args+=(--identity "$identity")
     bash "$repo_root/scripts/build-mac-dmg.sh" ${build_args[@]+"${build_args[@]}"}
 
-    existing=(dist/Cookie-Janitor-*.dmg)
-    [[ ${#existing[@]} -gt 0 ]] || die "build finished but no DMG was produced under dist/"
-    dmg="${existing[0]}"
+    current=(dist/Cookie-Janitor-"$version"-*.dmg)
+    if [[ ${#current[@]} -eq 0 ]]; then
+        die "build finished but no DMG named Cookie-Janitor-${version}-*.dmg was produced under dist/. Check that pyproject.toml version matches what the build emitted."
+    fi
+    dmg="${current[0]}"
     sha="${dmg}.sha256"
 fi
 

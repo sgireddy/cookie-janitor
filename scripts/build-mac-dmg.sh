@@ -39,6 +39,18 @@ done
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
+# Read the version up-front so the final DMG filename embeds it. This is
+# important: scripts/release-mac.sh uses ``dist/Cookie-Janitor-${version}-*.dmg``
+# to decide whether a usable build is already on disk. A version-less
+# filename made it impossible to tell a stale v0.3.0 DMG apart from a
+# fresh v0.4.0 one, so the reuse check fired against the old artefact
+# and shipped the wrong DMG.
+version="$(awk -F'"' '/^version = / { print $2; exit }' pyproject.toml)"
+if [[ -z "$version" ]]; then
+    echo "ERROR: could not read version from pyproject.toml" >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------- preflight
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -109,14 +121,17 @@ fi
 # ---------------------------------------------------------------- rename + sha
 
 # Briefcase writes dist/Cookie Janitor-0.2.0.dmg (with a space). Rename
-# to match the CI naming so users get the same filename everywhere.
+# to embed the version AND architecture so a glance at dist/ tells you
+# what's in each file, and so release-mac.sh can match version-specific
+# names without false positives from older builds. Keep this scheme in
+# sync with release-mac.sh's reuse glob.
 shopt -s nullglob
 src_dmg=(dist/Cookie\ Janitor-*.dmg)
 if [[ ${#src_dmg[@]} -eq 0 ]]; then
     echo "ERROR: no DMG produced under dist/" >&2
     exit 2
 fi
-final_dmg="dist/Cookie-Janitor-${target_arch}.dmg"
+final_dmg="dist/Cookie-Janitor-${version}-${target_arch}.dmg"
 mv "${src_dmg[0]}" "$final_dmg"
 
 shasum -a 256 "$final_dmg" | awk '{print $1}' > "${final_dmg}.sha256"
