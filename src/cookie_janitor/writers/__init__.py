@@ -75,11 +75,12 @@ def supports_delete(browser: BrowserKind) -> bool:
     """Return ``True`` iff this build can delete cookies for the family.
 
     The GUI uses this to decide whether to enable the "Delete selected"
-    button. It's preferable to checking ``browser is SAFARI`` at the
-    call site because the surrounding plumbing already passes the
-    ``BrowserKind`` around.
+    button. As of v0.6.0 every supported family is writable; we keep
+    the function around because it remains the natural place to bolt
+    on future per-platform gating (e.g. "Chromium delete needs a
+    keychain unlock" or similar).
     """
-    return browser in {BrowserKind.FIREFOX, BrowserKind.CHROMIUM}
+    return browser in {BrowserKind.FIREFOX, BrowserKind.CHROMIUM, BrowserKind.SAFARI}
 
 
 __all__ = [

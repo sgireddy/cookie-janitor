@@ -492,10 +492,9 @@ class MainWindow(QMainWindow):
             # the emoji is intentional banner iconography matching the
             # ⚠️ warning style below.
             messages.append(
-                f"\u2139\ufe0f  <b>{profile.vendor} is currently read-only in"
-                f" Cookie Janitor.</b> You can audit cookies here, but"
-                f" deletion isn't yet supported for {profile.vendor}."
-                f" (Coming in a future release.)"
+                f"\u2139\ufe0f  <b>{profile.vendor} is read-only in this build of"
+                f" Cookie Janitor.</b> You can audit cookies here, but deletion"
+                f" isn't supported yet for {profile.vendor}."
             )
         if profile.is_running:
             messages.append(
@@ -587,10 +586,35 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        # Late import: same rationale as _format_read_error — keep Safari
+        # symbols out of the GUI's top-level type graph on non-darwin.
+        from cookie_janitor.writers.safari import (
+            SafariSyncEnabledError,
+        )
+
         try:
             result = writers.delete_cookies(
                 profile, [d.cookie for d in selected], dry_run=False
             )
+        except SafariSyncEnabledError as exc:
+            # Distinct UX from a generic failure: this isn't a crash,
+            # it's a deliberate refusal with a clear remedy. We didn't
+            # touch the file. Show the multi-paragraph guidance with
+            # informative-text so it's visible by default.
+            log.warning("delete_cookies blocked by iCloud Safari sync")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("iCloud Safari sync is on")
+            box.setText(
+                "Cookie Janitor didn't delete anything — iCloud Safari"
+                " sync is enabled on this Mac and would resurrect the"
+                " deleted cookies within minutes from another Apple"
+                " device."
+            )
+            box.setInformativeText(exc.GUIDANCE)
+            box.addButton(QMessageBox.StandardButton.Ok)
+            box.exec()
+            return
         except Exception as exc:
             log.exception("delete_cookies failed")
             QMessageBox.critical(

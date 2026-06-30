@@ -251,14 +251,24 @@ def test_format_read_error_falls_back_to_generic_message_for_other_errors(tmp_pa
     assert detail == ""  # no Safari-only guidance leaking in
 
 
-def test_main_window_disables_delete_for_safari_profile(
+def test_main_window_enables_delete_for_safari_profile_with_cookies(
     qtbot, tmp_path: Path, monkeypatch
 ):
-    """Selecting a Safari profile in the dropdown must disable the
-    delete button and show the read-only banner. This is the GUI half
-    of the writers.supports_delete contract.
+    """Selecting a Safari profile with cookies must now ENABLE the
+    delete button — v0.6.0 ships a real binarycookies writer. Pins
+    the GUI half of the supports_delete contract.
+
+    Previously (v0.5.x) this test asserted the button was disabled
+    and the read-only banner was shown. Both expectations flipped
+    when the Safari writer landed; this is the canonical recording
+    of that change.
     """
-    from cookie_janitor.model.cookie import BrowserKind, Profile
+    from cookie_janitor.model.cookie import (
+        BrowserKind,
+        Profile,
+        SameSite,
+        make_cookie,
+    )
     from cookie_janitor.readers import chromium as chromium_reader
     from cookie_janitor.readers import safari as safari_reader
 
@@ -271,16 +281,32 @@ def test_main_window_disables_delete_for_safari_profile(
         cookies_db_path=safari_db,
         is_running=False,
     )
+    fake_cookie = make_cookie(
+        name="trk",
+        domain="tracker.example",
+        path="/",
+        expires=None,
+        secure=False,
+        http_only=False,
+        same_site=SameSite.UNSPECIFIED,
+        is_host_only=False,
+        value_bytes=b"x",
+    )
     monkeypatch.setattr(firefox_reader, "discover_profiles", lambda: [])
     monkeypatch.setattr(chromium_reader, "discover_profiles", lambda: [])
     monkeypatch.setattr(safari_reader, "discover_profiles", lambda: [safari_profile])
-    monkeypatch.setattr(safari_reader, "read_cookies", lambda _p: [])
+    monkeypatch.setattr(safari_reader, "read_cookies", lambda _p: [fake_cookie])
 
     window = MainWindow()
     qtbot.addWidget(window)
-    assert not window._delete_btn.isEnabled()
-    assert "read-only" in window._running_banner.text().lower()
-    assert "safari" in window._delete_btn.toolTip().lower()
+    # Delete is enabled iff (supports_delete AND not running AND has
+    # decisions). The fake cookie above guarantees the third.
+    assert window._delete_btn.isEnabled()
+    # The legacy "read-only" banner must NOT fire for Safari any more
+    # — that copy was wrong as of v0.6.0. (The banner can still
+    # appear if Safari is *running*, but our fixture sets is_running
+    # False.)
+    assert "read-only" not in window._running_banner.text().lower()
 
 
 def test_main_window_renders_real_decisions(qtbot, tmp_path: Path, monkeypatch):

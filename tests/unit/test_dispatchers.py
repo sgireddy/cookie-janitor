@@ -10,11 +10,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from cookie_janitor import readers, writers
 from cookie_janitor.model.cookie import BrowserKind, Profile
-from cookie_janitor.writers.safari import SafariWriteNotSupported
 
 
 def _fake_profile(browser: BrowserKind, db: Path) -> Profile:
@@ -97,12 +94,14 @@ def test_read_cookies_dispatches_on_browser_kind(monkeypatch, tmp_path):
 def test_supports_delete_matrix():
     """Pins which browser families have a working delete path today.
 
-    Update this test when shipping a Safari writer — the assertion
-    failure is the prompt to also flip the user-visible GUI state.
+    As of v0.6.0 every supported family is writable, including Safari.
+    If a future change adds a new family or temporarily disables one,
+    this test is the canonical place to record that decision so the
+    GUI's delete button + the banner copy stay in sync.
     """
     assert writers.supports_delete(BrowserKind.FIREFOX) is True
     assert writers.supports_delete(BrowserKind.CHROMIUM) is True
-    assert writers.supports_delete(BrowserKind.SAFARI) is False
+    assert writers.supports_delete(BrowserKind.SAFARI) is True
 
 
 def test_dispatcher_routes_delete_calls(monkeypatch, tmp_path):
@@ -145,17 +144,43 @@ def test_safari_writer_dry_run_returns_planned_zero_actually_deleted(tmp_path):
     assert result.timestamp.tzinfo is UTC
 
 
-def test_safari_writer_apply_raises_clearly(tmp_path):
-    """``dry_run=False`` against Safari must raise with a help message.
+def test_safari_writer_apply_with_empty_input_is_noop(tmp_path):
+    """``dry_run=False`` with zero cookies to delete must NOT raise.
 
-    This is what the GUI's error dialog displays back to the user.
-    The exception type is SafariWriteNotSupported (a subclass of
-    NotImplementedError) so callers that want to gracefully skip
-    Safari can catch it precisely.
+    Deleting an empty selection is a legitimate caller move (e.g. the
+    user clicked Apply with nothing checked). It must produce a
+    WriteResult with zeros and an unchanged file, not a NotImplemented.
+    The check is meaningful now because v0.6.0 ships a real writer
+    where this path goes through the full backup + serialize +
+    atomic-swap pipeline.
     """
+    import struct
+
     db = tmp_path / "Cookies.binarycookies"
-    db.write_bytes(b"")
+    # Minimal but VALID file: 1 page, 0 cookies. Page = magic(4) +
+    # num_cookies(4) + footer(4). File = "cook" + page_count(4) +
+    # page_sizes(4) + page(12) + 8-byte trailer.
+    page = b"\x00\x00\x01\x00" + struct.pack("<I", 0) + b"\x00\x00\x00\x00"
+    file_bytes = (
+        b"cook"
+        + struct.pack(">I", 1)
+        + struct.pack(">I", len(page))
+        + page
+        + b"\x00" * 8
+    )
+    db.write_bytes(file_bytes)
+    db.chmod(0o600)
+
     profile = _fake_profile(BrowserKind.SAFARI, db)
-    with pytest.raises(SafariWriteNotSupported, match="doesn't yet delete"):
-        writers.delete_cookies(profile, [], dry_run=False)
-    assert issubclass(SafariWriteNotSupported, NotImplementedError)
+    backup_root = tmp_path / "backups"
+    result = writers.delete_cookies(
+        profile, [], dry_run=False, backup_root=backup_root
+    )
+    assert result.dry_run is False
+    assert result.actually_deleted == 0
+    assert result.requested_deletes == 0
+    # The on-disk file must be byte-identical to what we wrote — empty
+    # deletion through the real writer must be a no-op at the byte
+    # level. This pins the central safety property of the new
+    # serializer.
+    assert db.read_bytes() == file_bytes
