@@ -186,6 +186,48 @@ Prereqs: `xcode-select --install`, `uv`, and
 [`gh`](https://cli.github.com/) authenticated as the release owner
 (`gh auth login`).
 
+### Building a Windows MSI
+
+Windows MSIs are built on Windows. You cannot cross-build from macOS
+or Linux — Briefcase wraps a native Python interpreter and runs WiX
+(`candle.exe` / `light.exe`) to produce the installer. Two routes:
+
+**Route A — via GitHub Actions (recommended).**
+The `Release` workflow builds the MSI on a `windows-latest` runner in
+parallel with the DMG. Push a `vX.Y.Z` tag and both artefacts appear
+on the resulting draft release. Nothing to do per-release.
+
+**Route B — locally on a Windows box.** Prereqs:
+
+* Windows 10 / 11.
+* Python 3.11 (installed by `uv` on demand if missing).
+* [`uv`](https://github.com/astral-sh/uv).
+* WiX Toolset v3.x on `PATH`:
+  `choco install wixtoolset` _or_
+  download from <https://github.com/wixtoolset/wix3/releases>.
+* [`gh`](https://cli.github.com/) authenticated, but only if you want
+  the script to also create a draft GitHub Release.
+
+Then:
+
+```powershell
+# Just build the MSI; don't touch GitHub.
+pwsh scripts\release-windows.ps1 -SkipRelease
+
+# Build + create a draft GitHub Release with MSI + .sha256 attached.
+pwsh scripts\release-windows.ps1
+
+# Force a fresh build even if dist\*.msi exists.
+pwsh scripts\release-windows.ps1 -Rebuild
+```
+
+Output lands in `dist\Cookie-Janitor-x64.msi` with a sibling `.sha256`
+in the same `<hash>  <filename>` format the macOS pipeline uses. The
+MSI is a **per-user** installer (no UAC prompt) that installs to
+`%LOCALAPPDATA%\Programs\Cookie Janitor\`. First launch will show a
+SmartScreen warning ("Windows protected your PC") because the build
+is unsigned; click **More info → Run anyway**.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) (to be written). All contributions

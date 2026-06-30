@@ -1,6 +1,6 @@
 [project]
 name = "cookie-janitor"
-version = "0.6.0"
+version = "0.6.1"
 description = "A transparent, open-source helper that shows you every cookie on your machine, explains why it's there, and lets you decide what to keep."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -133,7 +133,7 @@ exclude_dirs = ["tests"]
 [tool.briefcase]
 project_name = "Cookie Janitor"
 bundle = "dev.cookiejanitor"
-version = "0.6.0"
+version = "0.6.1"
 url = "https://github.com/sgireddy/cookie-janitor"
 license.file = "LICENSE"
 author = "Shashi Gireddy"
@@ -175,3 +175,31 @@ requires = []
 # DEVELOPER_ID_APPLICATION secret is set.
 [tool.briefcase.app.cookie_janitor.macOS.app]
 template = "https://github.com/beeware/briefcase-macOS-app-template"
+
+# --- Windows -----------------------------------------------------------
+#
+# Briefcase packages Windows apps as an .msi via the WiX Toolset v3.x.
+# The Windows base template is briefcase-windows-app-template, which
+# produces a stub launcher (.exe) plus a bundled Python runtime; WiX
+# wraps that tree in an MSI.
+#
+# `system_installer = false` is the important choice here: it picks the
+# per-user MSI layout (installs under %LOCALAPPDATA%\Programs) instead
+# of per-machine (C:\Program Files). Per-user lets the MSI install
+# without elevation, which matches Cookie Janitor's actual privilege
+# needs — we only ever read/write under %USERPROFILE% (browser profile
+# dirs, our own backup tree). Forcing UAC for a tool that doesn't need
+# admin rights is the kind of thing that scares users away.
+[tool.briefcase.app.cookie_janitor.windows]
+requires = []
+system_installer = false
+
+[tool.briefcase.app.cookie_janitor.windows.app]
+template = "https://github.com/beeware/briefcase-windows-app-template"
+
+# --- Linux -------------------------------------------------------------
+#
+# We don't ship a Linux installer yet (Linux users run from source via
+# `uv sync --extra gui && uv run cookie-janitor`). Left as a future
+# follow-up: briefcase can produce AppImage, .deb, and .rpm but each
+# needs a per-distro test pass we haven't done.

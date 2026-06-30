@@ -124,9 +124,101 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-windows:
+    name: Build Windows MSI (${{ matrix.arch }})
+    # Run in parallel with build-macos. Briefcase Windows packaging
+    # requires WiX Toolset v3 (preinstalled on windows-latest runners)
+    # plus a native Python — we cannot cross-build Windows from macOS
+    # or Linux. The runner is the only feasible "Windows" we have.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies (dev + gui)
+        run: uv sync --extra dev --extra gui --frozen
+
+      - name: Install briefcase
+        run: uv pip install "briefcase>=0.3.20,<0.4"
+
+      - name: Verify WiX toolset is on PATH
+        # WiX 3.x ships with windows-latest. We assert it's discoverable
+        # up front because Briefcase's own error message ("MSI tooling
+        # not found") is less helpful than "candle.exe missing".
+        shell: pwsh
+        run: |
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if (-not $candle) {
+            Write-Error "WiX (candle.exe) not on PATH. Install via 'choco install wixtoolset' or update the runner image."
+            exit 1
+          }
+          candle.exe -? | Select-Object -First 1
+
+      - name: Briefcase create + build
+        run: |
+          uv run briefcase create windows app --no-input
+          uv run briefcase build windows app --no-input
+
+      - name: Briefcase package (ad-hoc / unsigned MSI)
+        # Without a code-signing certificate the MSI is unsigned and
+        # SmartScreen will warn on first launch (analogous to macOS
+        # Gatekeeper). We surface this clearly in the release body.
+        # When AZURE_CODE_SIGNING_* secrets become available, this is
+        # the spot to add `--identity` or a SignTool step.
+        run: uv run briefcase package windows app --adhoc-sign --no-input
+
+      - name: Locate built MSI
+        id: locate
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path dist -Filter *.msi -Recurse | Select-Object -First 1
+          if (-not $msi) {
+            Write-Error "No MSI produced by briefcase"
+            exit 1
+          }
+          $renamed = "dist\Cookie-Janitor-${{ matrix.arch }}.msi"
+          Move-Item -Path $msi.FullName -Destination $renamed
+          "msi=$renamed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Compute SHA-256
+        shell: pwsh
+        run: |
+          $msiPath = "${{ steps.locate.outputs.msi }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $msiPath).Hash.ToLower()
+          $name = Split-Path -Leaf $msiPath
+          # Match the macOS format: "<hash>  <filename>" — two spaces,
+          # lowercase hex — so the same verify command works on both
+          # platforms (`shasum -c` on Mac, `Get-FileHash` on Windows).
+          "$hash  $name" | Out-File -FilePath "$msiPath.sha256" -Encoding ASCII -NoNewline
+
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            dist/*.msi
+            dist/*.msi.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub Release
-    needs: build-macos
+    needs: [build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -141,11 +233,20 @@ jobs:
           pattern: macos-*
           merge-multiple: true
 
+      - name: Download all Windows artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+          pattern: windows-*
+          merge-multiple: true
+
       - name: Assemble release directory
         run: |
           mkdir -p release
           cp artefacts/*.dmg release/
           cp artefacts/*.dmg.sha256 release/
+          cp artefacts/*.msi release/
+          cp artefacts/*.msi.sha256 release/
           ls -la release/
 
       - name: Determine tag
@@ -168,33 +269,54 @@ jobs:
           files: |
             release/*.dmg
             release/*.dmg.sha256
+            release/*.msi
+            release/*.msi.sha256
           body: |
             ## Cookie Janitor ${{ steps.tag.outputs.name }}
 
-            **First time opening?** macOS will warn that this app is from
-            an unidentified developer because this build is not yet
-            signed with an Apple Developer ID. To open it:
+            Pick your platform:
 
+            * **macOS (Apple Silicon)** — `Cookie-Janitor-arm64.dmg`
+            * **Windows 10 / 11 (x64)** — `Cookie-Janitor-x64.msi`
+
+            ### First-launch warnings
+
+            Neither binary is signed with a paid OS-vendor certificate
+            yet, so each operating system shows a one-time warning
+            until you tell it you trust the download:
+
+            **macOS** — "unidentified developer":
             1. Right-click `Cookie Janitor.app` in Applications.
             2. Choose **Open**.
             3. Click **Open** in the dialog that appears.
 
-            You only need to do this the first time.
+            **Windows** — "Windows protected your PC" (SmartScreen):
+            1. Click **More info** in the blue dialog.
+            2. Click **Run anyway**.
+
+            Each step happens only the first time per machine.
 
             ### Verify your download
 
-            Each DMG ships with a `.sha256` file containing its
-            SHA-256 hash. To verify, run:
+            Every artefact ships with a matching `.sha256` file
+            containing its SHA-256 hash in `<hash>  <filename>` format,
+            so the same shape works on both platforms:
 
-            ```
-            shasum -a 256 Cookie-Janitor-arm64.dmg
+            ```sh
+            # macOS / Linux
+            shasum -a 256 -c Cookie-Janitor-arm64.dmg.sha256
             ```
 
-            and compare against the contents of
-            `Cookie-Janitor-arm64.dmg.sha256`.
+            ```powershell
+            # Windows
+            $expected = (Get-Content Cookie-Janitor-x64.msi.sha256).Split()[0]
+            $actual   = (Get-FileHash Cookie-Janitor-x64.msi).Hash.ToLower()
+            if ($expected -eq $actual) { "OK" } else { "MISMATCH" }
+            ```
 
             ### Source
 
-            This binary was built from commit
+            Built from commit
             [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}).
-            Every line of source is on GitHub.
+            Every line of source is on GitHub — there are no
+            closed-source components in either binary.
