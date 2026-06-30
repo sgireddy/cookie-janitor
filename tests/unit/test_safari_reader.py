@@ -260,6 +260,109 @@ def test_discover_finds_sandboxed_path(tmp_path, monkeypatch):
     assert profiles[0].cookies_db_path == cookies
 
 
+def test_eperm_is_translated_to_safari_permission_denied(tmp_path, monkeypatch):
+    """Regression for the user-reported macOS TCC error::
+
+        Cookie Janitor couldn't read cookies for Safari — Default:
+        [Errno 1] Operation not permitted:
+        '/Users/.../Library/Containers/com.apple.Safari/.../Cookies.binarycookies'
+
+    The bare ``PermissionError`` was useless to the user — it didn't
+    say *what* permission, *where* to grant it, or that Cookie Janitor
+    must be relaunched after granting Full Disk Access. The reader
+    must translate ``EPERM`` / ``EACCES`` into our actionable
+    ``SafariPermissionDeniedError``.
+    """
+    f = tmp_path / "Cookies.binarycookies"
+    f.write_bytes(b"placeholder -- won't actually be read")
+    profile = Profile(
+        browser=BrowserKind.SAFARI,
+        vendor="Safari",
+        profile_name="Default",
+        cookies_db_path=f,
+        is_running=False,
+    )
+
+    def deny(_self: Path) -> bytes:
+        # macOS TCC denies with errno 1 (EPERM). Some filesystems
+        # surface errno 13 (EACCES); we test the EPERM path here and
+        # the EACCES path separately below.
+        raise PermissionError(1, "Operation not permitted", str(f))
+
+    monkeypatch.setattr(Path, "read_bytes", deny)
+    with pytest.raises(safari.SafariPermissionDeniedError) as excinfo:
+        safari.read_cookies(profile)
+
+    msg = str(excinfo.value)
+    # The user-facing message must name the actual remedy, not just
+    # restate the OS error. These assertions pin the contract.
+    assert "Full Disk Access" in msg
+    assert "System Settings" in msg
+    assert "relaunch" in msg.lower() or "reopen" in msg.lower()
+    # And the original OS error is preserved on the exception for logs.
+    assert excinfo.value.original is not None
+    assert excinfo.value.path == f
+
+
+def test_eacces_also_translated(tmp_path, monkeypatch):
+    """Same as above for errno 13. Filesystems vary, the fix shouldn't."""
+    f = tmp_path / "Cookies.binarycookies"
+    f.write_bytes(b"")
+    profile = Profile(
+        browser=BrowserKind.SAFARI,
+        vendor="Safari",
+        profile_name="Default",
+        cookies_db_path=f,
+        is_running=False,
+    )
+
+    def deny(_self: Path) -> bytes:
+        raise OSError(13, "Permission denied", str(f))
+
+    monkeypatch.setattr(Path, "read_bytes", deny)
+    with pytest.raises(safari.SafariPermissionDeniedError):
+        safari.read_cookies(profile)
+
+
+def test_unrelated_oserror_still_propagates(tmp_path, monkeypatch):
+    """We must NOT swallow non-permission OSErrors as TCC denials —
+    that would hide real bugs (corrupt filesystem, missing parent
+    dir, etc.) behind a misleading Full Disk Access message.
+    """
+    f = tmp_path / "Cookies.binarycookies"
+    f.write_bytes(b"")
+    profile = Profile(
+        browser=BrowserKind.SAFARI,
+        vendor="Safari",
+        profile_name="Default",
+        cookies_db_path=f,
+        is_running=False,
+    )
+
+    def explode(_self: Path) -> bytes:
+        raise OSError(5, "Input/output error", str(f))
+
+    monkeypatch.setattr(Path, "read_bytes", explode)
+    with pytest.raises(OSError, match="Input/output error"):
+        safari.read_cookies(profile)
+    # And critically, NOT as a SafariPermissionDeniedError — which is
+    # a PermissionError subclass and would change the error class.
+    try:
+        safari.read_cookies(profile)
+    except safari.SafariPermissionDeniedError:
+        pytest.fail("EIO must not masquerade as a TCC permission error")
+    except OSError:
+        pass
+
+
+def test_safari_permission_denied_is_a_permission_error_subclass():
+    """Existing callers that already catch PermissionError must keep
+    working without changes — important for the CLI which catches
+    generic OS errors and pretty-prints them.
+    """
+    assert issubclass(safari.SafariPermissionDeniedError, PermissionError)
+
+
 def test_read_cookies_refuses_wrong_browser_kind(tmp_path):
     f = tmp_path / "Cookies.binarycookies"
     f.write_bytes(_build_binarycookies([_build_page([])]))

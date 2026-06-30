@@ -66,6 +66,7 @@ out the delete checkboxes for Safari rows accordingly.
 
 from __future__ import annotations
 
+import errno
 import logging
 import struct
 import sys
@@ -148,6 +149,61 @@ class BinaryCookiesError(ValueError):
     """
 
 
+class SafariPermissionDeniedError(PermissionError):
+    """macOS TCC denied us read access to Safari's cookies file.
+
+    Raised when the underlying ``open()`` returns ``EPERM`` / ``EACCES``
+    on a path under ``~/Library/Containers/com.apple.Safari/``. Carries
+    an actionable, ready-for-the-dialog message in ``str(exc)`` so the
+    GUI doesn't have to know about macOS TCC mechanics.
+
+    Why this exists as its own class
+    --------------------------------
+
+    The bare error a user sees from Python is::
+
+        [Errno 1] Operation not permitted:
+        '/Users/.../Library/Containers/com.apple.Safari/.../Cookies.binarycookies'
+
+    That's accurate but unactionable — nothing on screen tells the
+    user *what* permission, *where* to grant it, or that they'll have
+    to **restart** Cookie Janitor afterwards (TCC caches per-process).
+    Giving the error a dedicated type lets the GUI render a much
+    better dialog AND lets callers (CLI, tests) treat permission
+    failures distinctly from "file doesn't exist" or "file is
+    corrupt".
+    """
+
+    #: Multi-paragraph copy ready to drop into a QMessageBox detail field.
+    GUIDANCE: str = (
+        "macOS protects Safari's cookie store with a system feature called"
+        " Full Disk Access (part of Privacy & Security). Cookie Janitor"
+        " needs to be on that allow-list to read or audit Safari cookies.\n"
+        "\n"
+        "To grant it:\n"
+        "  1. Open  Apple menu → System Settings → Privacy & Security →"
+        " Full Disk Access.\n"
+        "  2. Click the +  button and select Cookie Janitor.app"
+        " (or drag it in from /Applications).\n"
+        "  3. Make sure the toggle next to Cookie Janitor is ON.\n"
+        "  4. Quit Cookie Janitor completely (⌘Q) and reopen it — TCC"
+        " only re-checks permissions on next launch.\n"
+        "\n"
+        "Your other browsers (Firefox, Chrome, Edge, Brave, …) don't"
+        " need this — they store cookies outside Apple's protected"
+        " containers. Safari is the only family affected."
+    )
+
+    def __init__(self, path: Path, original: OSError | None = None) -> None:
+        self.path = path
+        self.original = original
+        super().__init__(
+            f"macOS denied read access to {path}. "
+            f"Grant Full Disk Access to Cookie Janitor and relaunch.\n\n"
+            f"{self.GUIDANCE}"
+        )
+
+
 def read_cookies(profile: Profile) -> list[Cookie]:
     """Parse a Safari ``Cookies.binarycookies`` file.
 
@@ -156,10 +212,28 @@ def read_cookies(profile: Profile) -> list[Cookie]:
     and SQLite-style locking isn't a factor. We still open it
     read-only and the safety primitives have already validated the
     inode + ownership in ``discover_profiles``.
+
+    Raises :class:`SafariPermissionDeniedError` when the read fails
+    with ``EPERM``/``EACCES`` — almost always macOS TCC blocking us
+    from Safari's protected container. The GUI catches this
+    specifically and renders the Full Disk Access guidance.
     """
     if profile.browser is not BrowserKind.SAFARI:
         raise ValueError(f"read_cookies(safari) called with {profile.browser}")
-    data = profile.cookies_db_path.read_bytes()
+    try:
+        data = profile.cookies_db_path.read_bytes()
+    except PermissionError as exc:
+        # macOS TCC denies with EPERM (errno 1); some filesystems
+        # return EACCES (errno 13). Either way we want the same UX.
+        raise SafariPermissionDeniedError(
+            profile.cookies_db_path, original=exc
+        ) from exc
+    except OSError as exc:
+        if exc.errno in (errno.EPERM, errno.EACCES):
+            raise SafariPermissionDeniedError(
+                profile.cookies_db_path, original=exc
+            ) from exc
+        raise
     return list(_parse(data))
 
 

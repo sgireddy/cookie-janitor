@@ -186,6 +186,71 @@ def test_main_window_lists_chromium_and_safari_profiles_in_dropdown(
     assert "Safari" in joined
 
 
+def test_format_read_error_renders_actionable_tcc_message(tmp_path):
+    """A Safari TCC denial must produce a dialog message that names
+    the actual remedy (Full Disk Access, System Settings, restart),
+    not just dump the raw OSError. Pulled into its own helper exactly
+    so we can assert against the strings without spinning a dialog.
+    """
+    from cookie_janitor.gui.window import _format_read_error
+    from cookie_janitor.model.cookie import BrowserKind, Profile
+    from cookie_janitor.readers.safari import (
+        SafariPermissionDeniedError,
+    )
+
+    cookies_path = tmp_path / "Cookies.binarycookies"
+    cookies_path.write_bytes(b"")
+    profile = Profile(
+        browser=BrowserKind.SAFARI,
+        vendor="Safari",
+        profile_name="Default",
+        cookies_db_path=cookies_path,
+        is_running=False,
+    )
+    exc = SafariPermissionDeniedError(
+        cookies_path, original=PermissionError(1, "Operation not permitted")
+    )
+    title, body, detail = _format_read_error(profile, exc)
+
+    assert "Full Disk Access" in title
+    # The body should explain WHY this is happening (system-level, not
+    # our bug) — that's the bit that separates a helpful dialog from a
+    # blame-shifting one.
+    assert "macOS" in body
+    assert "not a Cookie Janitor bug" in body
+    # The detail section carries the numbered remedy. All four steps
+    # must be present so the user can follow them without checking
+    # an external doc.
+    assert "Privacy & Security" in detail
+    assert "Full Disk Access" in detail
+    assert "Quit" in detail or "relaunch" in detail.lower()
+    assert "Firefox" in detail  # explains that other browsers aren't affected
+
+
+def test_format_read_error_falls_back_to_generic_message_for_other_errors(tmp_path):
+    """Non-TCC errors must NOT get the Full Disk Access copy —
+    otherwise a Chrome SQLite corruption would tell the user to grant
+    Safari permissions, which would be actively misleading.
+    """
+    from cookie_janitor.gui.window import _format_read_error
+    from cookie_janitor.model.cookie import BrowserKind, Profile
+
+    cookies_path = tmp_path / "Cookies"
+    cookies_path.write_bytes(b"")
+    profile = Profile(
+        browser=BrowserKind.CHROMIUM,
+        vendor="Google Chrome",
+        profile_name="Default",
+        cookies_db_path=cookies_path,
+        is_running=False,
+    )
+    title, body, detail = _format_read_error(profile, RuntimeError("database is locked"))
+    assert title == "Couldn't read cookies"
+    assert "Google Chrome" in body
+    assert "database is locked" in body
+    assert detail == ""  # no Safari-only guidance leaking in
+
+
 def test_main_window_disables_delete_for_safari_profile(
     qtbot, tmp_path: Path, monkeypatch
 ):

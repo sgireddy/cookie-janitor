@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.resources
 import logging
+import subprocess
+import sys
 
 from PySide6.QtCore import QPoint, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QAction
@@ -66,6 +68,71 @@ def _decisions_for(
     policy = _build_policy(mode)
     cookies = readers.read_cookies(profile)
     return [decide(c, policy=policy, cookie_db=db) for c in cookies]
+
+
+#: macOS deep-link URL that opens System Settings directly on the Full
+#: Disk Access pane. Stable since macOS 13 Ventura; on older systems it
+#: opens the old Security & Privacy app to the Privacy tab — still a
+#: huge UX win over "go find this yourself in System Settings".
+_FULL_DISK_ACCESS_URL = (
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+)
+
+
+def _open_macos_full_disk_access_pane() -> None:
+    """Open System Settings on the Full Disk Access pane.
+
+    Best-effort: if macOS refuses the URL or ``open`` isn't on PATH for
+    some unusual reason, we log and move on — the dialog already told
+    the user the manual path. Failure here must not crash the GUI.
+    """
+    # ``/usr/bin/open`` is part of the macOS base system since 10.0 and
+    # is the documented way to launch a URL handler from a sandboxed /
+    # unsigned app. We use the absolute path (rather than relying on
+    # PATH) both to satisfy ruff's S607 and as a small defence against
+    # PATH-poisoning. ``subprocess.Popen`` avoids blocking the GUI.
+    try:
+        subprocess.Popen(  # noqa: S603 - fixed argv, no shell, hardcoded URL
+            ["/usr/bin/open", _FULL_DISK_ACCESS_URL]
+        )
+    except OSError as exc:
+        log.warning("Couldn't open System Settings via %s: %s", _FULL_DISK_ACCESS_URL, exc)
+
+
+def _format_read_error(profile: Profile, exc: BaseException) -> tuple[str, str, str]:
+    """Turn a read-time exception into a (title, body, detail) triple.
+
+    Pulled out of the MainWindow class so the formatting logic is
+    testable headlessly — the GUI just calls this and wraps the result
+    in a QMessageBox.
+
+    Returns:
+        (title, body, detail) where ``detail`` is the long-form
+        guidance shown in the dialog's expandable area. ``detail`` is
+        empty for ordinary errors.
+    """
+    # Late import: keep ``readers.safari`` out of the GUI's import
+    # graph on Linux where Safari isn't relevant, and avoid a circular
+    # dependency at module load (gui.window <- readers <- ...).
+    from cookie_janitor.readers.safari import (
+        SafariPermissionDeniedError,
+    )
+
+    if isinstance(exc, SafariPermissionDeniedError):
+        return (
+            "Safari needs Full Disk Access",
+            # Short, one-liner the user sees at the top of the dialog.
+            f"macOS is blocking Cookie Janitor from reading"
+            f" {profile.display}. This is a system-level permission,"
+            f" not a Cookie Janitor bug — Safari's cookie store lives"
+            f" inside Apple's protected container.",
+            SafariPermissionDeniedError.GUIDANCE,
+        )
+    return (
+        "Couldn't read cookies",
+        f"Cookie Janitor couldn't read cookies for {profile.display}:\n\n{exc}",
+        "",
+    )
 
 
 def _redecide(
@@ -304,11 +371,7 @@ class MainWindow(QMainWindow):
             decisions = _decisions_for(profile, self._db, self._mode)
         except Exception as exc:  # surface real errors instead of silent fail
             log.exception("Failed to read cookies for %s", profile.display)
-            QMessageBox.warning(
-                self,
-                "Couldn't read cookies",
-                f"Cookie Janitor couldn't read cookies for {profile.display}:\n\n{exc}",
-            )
+            self._show_read_error_dialog(profile, exc)
             decisions = []
 
         self._install_model(
@@ -339,6 +402,50 @@ class MainWindow(QMainWindow):
         else:
             tip = "Delete the ticked cookies. A backup is made first."
         self._delete_btn.setToolTip(tip)
+
+    def _show_read_error_dialog(self, profile: Profile, exc: BaseException) -> None:
+        """Render the right kind of dialog for a profile-read failure.
+
+        Safari TCC errors get a multi-paragraph guidance dialog with an
+        "Open System Settings" button that deep-links straight to the
+        Full Disk Access pane. Everything else gets the simple warning.
+        """
+        # Late import: importing here keeps Safari-specific symbols
+        # out of the module's top-level type graph and matches the
+        # pattern used in ``_format_read_error``.
+        from cookie_janitor.readers.safari import (
+            SafariPermissionDeniedError,
+        )
+
+        title, body, detail = _format_read_error(profile, exc)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(title)
+        box.setText(body)
+        if detail:
+            # Putting the long-form guidance in ``setInformativeText``
+            # (rather than ``setDetailedText``) keeps it visible by
+            # default — the user shouldn't have to click a "Show
+            # Details" disclosure to learn what to do.
+            box.setInformativeText(detail)
+        box.addButton(QMessageBox.StandardButton.Ok)
+
+        # Read sys.platform via a local so mypy doesn't narrow this
+        # branch into "unreachable on Linux" — the same trick used in
+        # readers/safari.py. We want the branch live in every build.
+        current_platform: str = sys.platform
+        if isinstance(exc, SafariPermissionDeniedError) and current_platform == "darwin":
+            open_settings = box.addButton(
+                "Open System Settings…", QMessageBox.ButtonRole.ActionRole
+            )
+            box.setDefaultButton(open_settings)
+        else:
+            open_settings = None
+
+        box.exec()
+
+        if open_settings is not None and box.clickedButton() is open_settings:
+            _open_macos_full_disk_access_pane()
 
     def _install_model(self, model: CookiesModel, *, audit_only: bool) -> None:
         """Wire a freshly built CookiesModel into both tabs and refresh.
