@@ -237,6 +237,117 @@ def test_encrypted_value_is_surfaced_as_marker(tmp_path, monkeypatch):
     assert cookies[0].value_length == len(b"<encrypted>")
 
 
+def test_read_survives_encrypted_value_with_text_storage_class(
+    tmp_path, monkeypatch
+):
+    """Regression for the v0.5.1 user report::
+
+        Cookie Janitor couldn't read cookies for Google Chrome — Default:
+        Could not decode to UTF-8 column 'encrypted_value' with text
+        'v10<z\\x9eZ\\x10y\\xc6h\\xb8\\xa90...'
+
+    Some Chrome builds end up with rows whose ``encrypted_value`` has
+    TEXT storage class rather than BLOB (SQLite affinity rules + the
+    way Chrome binds at INSERT time, varies by version). Python's
+    sqlite3 then applies its default ``text_factory = str``, which
+    raises on the AES-CBC ciphertext.
+
+    We reproduce that exact condition here by binding via
+    ``CAST(? AS TEXT)`` — that forces SQLite to store the bound bytes
+    as TEXT storage class, the same shape that triggered the user's
+    error. The reader must NOT raise.
+    """
+    home = _install_fake_chrome(tmp_path, monkeypatch)
+    db = home / ".config" / "google-chrome" / "Default" / "Cookies"
+    # Drop the seeded DB and rebuild with a custom binding strategy.
+    db.unlink()
+    _make_chrome_db(db, rows=[])  # creates the schema, no rows
+
+    # The exact byte prefix from the real bug report: 'v10' (Chrome's
+    # macOS v10 Keychain marker), then non-UTF-8 ciphertext bytes.
+    raw_blob = b"v10<z\x9eZ\x10y\xc6h\xb8\xa90\xa8x\xa3\x90Q"
+    future = _to_webkit_micros(datetime.now(tz=UTC) + timedelta(days=1))
+    conn = sqlite3.connect(db)
+    try:
+        # CAST(? AS TEXT) forces TEXT storage class even though the
+        # column is declared BLOB — this reproduces the failure mode
+        # the user actually saw in the wild.
+        conn.execute(
+            """
+            INSERT INTO cookies (creation_utc, host_key, name, value,
+                                 encrypted_value, path, expires_utc,
+                                 is_secure, is_httponly, samesite)
+            VALUES (0, ?, ?, '', CAST(? AS TEXT), '/', ?, 1, 0, -1)
+            """,
+            (".enc.example.com", "tracker", raw_blob, future),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    profile = next(
+        p for p in chromium.discover_profiles() if p.profile_name == "Default"
+    )
+    # The fix: must not raise OperationalError. Before the fix this
+    # line blew up with "Could not decode to UTF-8 column ...".
+    cookies = chromium.read_cookies(profile)
+    assert len(cookies) == 1
+    c = cookies[0]
+    assert c.name == "tracker"
+    assert c.domain == ".enc.example.com"
+    # And the encrypted_value surfaces as our standard marker, so the
+    # downstream UI and hash columns stay consistent.
+    assert c.value_length == len(b"<encrypted>")
+
+
+def test_read_replaces_non_utf8_bytes_in_text_columns(tmp_path, monkeypatch):
+    """Defensive: a single row with a mojibake host should not poison
+    the whole read. Old browsers / sketchy sites occasionally write
+    Latin-1 bytes into TEXT columns; ``errors='replace'`` keeps the
+    reader making progress instead of erroring out the whole profile.
+    """
+    home = _install_fake_chrome(tmp_path, monkeypatch)
+    db = home / ".config" / "google-chrome" / "Default" / "Cookies"
+    db.unlink()
+    _make_chrome_db(db, rows=[])
+
+    future = _to_webkit_micros(datetime.now(tz=UTC) + timedelta(days=1))
+    conn = sqlite3.connect(db)
+    try:
+        # Force a non-UTF-8 byte (0xff) into the ``name`` column via
+        # CAST AS TEXT — same trick as the previous test.
+        conn.execute(
+            """
+            INSERT INTO cookies (creation_utc, host_key, name, value, path,
+                                 expires_utc, is_secure, is_httponly, samesite)
+            VALUES (0, ?, CAST(? AS TEXT), '', '/', ?, 0, 0, -1)
+            """,
+            (".broken.example.com", b"bad\xffname", future),
+        )
+        # And a normal row to prove the read keeps going after the bad one.
+        conn.execute(
+            """
+            INSERT INTO cookies (creation_utc, host_key, name, value, path,
+                                 expires_utc, is_secure, is_httponly, samesite)
+            VALUES (0, '.good.example.com', 'ok', '', '/', ?, 0, 0, -1)
+            """,
+            (future,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    profile = next(
+        p for p in chromium.discover_profiles() if p.profile_name == "Default"
+    )
+    cookies = chromium.read_cookies(profile)
+    assert len(cookies) == 2
+    names = {c.name for c in cookies}
+    # The bad row contains the replacement char rather than crashing.
+    assert "ok" in names
+    assert any("\ufffd" in n or "bad" in n for n in names)
+
+
 def test_read_cookies_refuses_wrong_browser_kind(tmp_path, monkeypatch):
     _install_fake_chrome(tmp_path, monkeypatch)
     profile = next(iter(chromium.discover_profiles()))

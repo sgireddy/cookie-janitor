@@ -287,19 +287,58 @@ def read_cookies(profile: Profile) -> list[Cookie]:
         return list(_read_from_copy(copy_path))
 
 
+def _decode_text(value: object) -> str:
+    """Lossily decode whatever sqlite3 hands back into a ``str``.
+
+    With ``text_factory = bytes`` (see :func:`_read_from_copy`) every
+    TEXT column comes back as bytes. Chrome only ever stores valid
+    UTF-8 in ``name``/``host_key``/``path``/``value``, but real-world
+    cookie files occasionally contain mojibake — usually from very
+    old browser versions or from sites that wrote raw Latin-1 bytes.
+    ``errors='replace'`` keeps one bad byte from blowing up an entire
+    profile's read; the classifier only matches on cookie names and
+    domains, so a replacement character in a value field is harmless.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def _read_from_copy(db_path: Path) -> Iterator[Cookie]:
     # We can't pass ``immutable=1`` here because the WAL frames would
     # then be ignored. ``mode=ro`` is enough since we operate on a
     # private copy and nothing else has the file open.
     uri = f"file:{db_path}?mode=ro"
     conn = sqlite3.connect(uri, uri=True, isolation_level=None)
+    # Python's sqlite3 defaults ``text_factory`` to ``str``, which
+    # strict-UTF-8-decodes anything that comes back with TEXT storage
+    # class. Chrome's ``encrypted_value`` is *declared* BLOB but some
+    # versions wind up with rows whose storage class is TEXT (the
+    # affinity rules are subtle and version-dependent). When that
+    # happens the default factory raises::
+    #
+    #     OperationalError: Could not decode to UTF-8 column
+    #     'encrypted_value' with text 'v10\x00...'
+    #
+    # …which kills the whole read. Setting ``text_factory = bytes``
+    # disables auto-decoding *everywhere*; we decode the four columns
+    # we know are real strings (name, host, path, value) ourselves
+    # with ``errors='replace'`` via ``_decode_text``. The encrypted
+    # blob stays as bytes — which is what we wanted anyway, since we
+    # never look inside it.
+    conn.text_factory = bytes
     try:
         # Probe columns. Chrome schema has gone through ~30 revisions;
         # older versions may not have ``encrypted_value`` or
         # ``is_httponly`` named exactly the same. We pick the columns we
         # need and ignore the rest.
         cur = conn.execute("PRAGMA table_info(cookies)")
-        cols = {row[1] for row in cur.fetchall()}
+        cols = {
+            (row[1].decode("utf-8") if isinstance(row[1], bytes) else row[1])
+            for row in cur.fetchall()
+        }
         if "name" not in cols:
             log.warning(
                 "Chromium cookies table at %s has no 'name' column "
@@ -329,13 +368,18 @@ def _read_from_copy(db_path: Path) -> Iterator[Cookie]:
             samesite_col or "0",
             value_col,
         ]
+        # ``CAST(... AS BLOB)`` belt to text_factory's suspenders: even
+        # if a row's encrypted_value somehow ends up with TEXT storage
+        # class, the CAST forces SQLite to hand us raw bytes. Together
+        # with text_factory=bytes this makes the read airtight.
         if encrypted_col:
-            select_parts.append(encrypted_col)
+            select_parts.append(f"CAST({encrypted_col} AS BLOB)")
         sql = f"SELECT {', '.join(select_parts)} FROM cookies"  # noqa: S608
 
         for row in conn.execute(sql):
             (name, host, path, expires, secure, http_only, same_site, value, *rest) = row
             encrypted = rest[0] if rest else None
+            host_str = _decode_text(host)
             if encrypted:
                 value_bytes: bytes = _ENCRYPTED_VALUE_MARKER
             elif isinstance(value, bytes):
@@ -345,16 +389,16 @@ def _read_from_copy(db_path: Path) -> Iterator[Cookie]:
             else:
                 value_bytes = str(value).encode("utf-8")
             yield make_cookie(
-                name=str(name),
-                domain=str(host),
-                path=str(path or "/"),
+                name=_decode_text(name),
+                domain=host_str,
+                path=_decode_text(path) or "/",
                 expires=_expiry_from_webkit(expires),
                 secure=bool(secure),
                 http_only=bool(http_only),
                 same_site=_SAME_SITE_MAP.get(int(same_site or 0), SameSite.UNSPECIFIED),
                 # Chrome marks host-only by storing the host without a
                 # leading '.' (same convention as Firefox).
-                is_host_only=not str(host).startswith("."),
+                is_host_only=not host_str.startswith("."),
                 value_bytes=value_bytes,
             )
     finally:
