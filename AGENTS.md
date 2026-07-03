@@ -106,7 +106,10 @@ week of red CI in v0.6.2–v0.6.5.
 ```bash
 uv run ruff check src tests
 uv run ruff format --check src tests   # <-- separate tool from `ruff check`
-uv run mypy --strict src
+# mypy narrows `sys.platform` per-target — a `--strict` run on Linux
+# will silently miss "unreachable branch" errors that fire on the
+# macOS / Windows CI runners. Sweep all three:
+for p in linux darwin win32; do uv run mypy --strict --platform $p src; done
 uv run bandit -q -r src                # SAST; belt to ruff's `S` suspenders
 QT_QPA_PLATFORM=offscreen uv run pytest -q
 uv export --no-emit-project --no-hashes --frozen > /tmp/reqs.txt

@@ -72,13 +72,21 @@ def default_log_file_path() -> Path:
       that should persist between (application) restarts" lives, and
       the spec explicitly names logs as an example.
     """
+    # ``mypy --strict`` narrows ``sys.platform`` per-target-platform,
+    # so on any given CI runner the two branches that DON'T match its
+    # own platform look "unreachable" to mypy — but they're the whole
+    # reason the function exists. Each cross-platform branch needs a
+    # ``# type: ignore[unreachable, unused-ignore]`` pragma. The
+    # ``unused-ignore`` half silences the meta-warning on whichever
+    # platform DOES take that branch (where the ignore isn't needed).
+    # Documented mypy idiom for cross-platform ``sys.platform`` chains.
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA")
         root = Path(base) if base else Path.home() / "AppData" / "Local"
         return root / "cookie-janitor" / "logs" / "cookie-janitor.log"
-    if sys.platform == "darwin":
+    if sys.platform == "darwin":  # type: ignore[unreachable,unused-ignore]
         return Path.home() / "Library" / "Logs" / "cookie-janitor" / "cookie-janitor.log"
-    xdg = os.environ.get("XDG_STATE_HOME")
+    xdg = os.environ.get("XDG_STATE_HOME")  # type: ignore[unreachable,unused-ignore]
     root = Path(xdg) if xdg else Path.home() / ".local" / "state"
     return root / "cookie-janitor" / "cookie-janitor.log"
 
