@@ -323,17 +323,24 @@ def read_cookies(profile: Profile) -> list[Cookie]:
     src = profile.cookies_db_path
     safe_fs.assert_regular_file_owned_by_us(src)
 
-    # Re-check at read time rather than trusting profile.is_running.
-    # Discovery may have run several minutes ago; the user may have
-    # opened the browser since. Also catches the Windows case where
-    # the process was already there but discovery ran too fast for
-    # psutil to see it.
-    if is_running(BrowserKind.CHROMIUM):
-        raise ChromiumLockedError(
-            f"{profile.vendor} appears to be running. Please quit it "
-            f"completely (including any background helpers) and try again."
-        )
-
+    # NOTE: v0.6.4 had a preflight ``is_running(CHROMIUM)`` check here.
+    # It has been removed intentionally — see the comment in
+    # ``safety/process.py`` at ``_PROCESS_NAMES[CHROMIUM]``.
+    #
+    # Short version: on Windows 11, ``msedge.exe`` legitimately runs
+    # even when the user has never opened the Edge browser (Widgets
+    # Board, Copilot pane, Windows Search, PWAs pinned to the taskbar,
+    # WebView2 hosts embedded in other apps such as Teams / Outlook).
+    # A basename-match ``is_running`` sees those helpers, returns True,
+    # and the preflight blocks the read with a false positive.
+    #
+    # The actual truth we care about — "does any process have OUR
+    # profile's Cookies file open with a restrictive share mode?" — is
+    # exactly what ``shutil.copy2`` answers. If the copy succeeds, no
+    # process has the file locked and we can proceed. If it fails with
+    # PermissionError, we translate to ChromiumLockedError below.
+    #
+    # File lock == ground truth. Process name == guessing.
     with tempfile.TemporaryDirectory(prefix="cj-cr-") as tmp:
         tmp_path = Path(tmp)
         copy_path = tmp_path / "Cookies"

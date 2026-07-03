@@ -510,11 +510,21 @@ class MainWindow(QMainWindow):
                 f" isn't supported yet for {profile.vendor}."
             )
         if profile.is_running:
+            # NOTE: on Windows 11 this fires as a false positive when a
+            # Chromium-family process is up but is NOT the user's actual
+            # browser session — Widgets Board, Copilot, Windows Search,
+            # any pinned PWA, WebView2 hosts. See the comment on
+            # ``_PROCESS_NAMES`` in ``safety/process.py``. We used to say
+            # "Edge is running — cookies can't be deleted" here; that
+            # was misleading in the false-positive case. Wording is now
+            # hedged: reads work regardless (v0.6.5 fix), deletes may or
+            # may not, and if a delete fails the user gets a specific
+            # dialog explaining what's holding the lock.
             messages.append(
-                f"⚠️  <b>{profile.vendor} is running.</b> Cookies can't be deleted"
-                f" while the browser holds the database. Quit {profile.vendor}"
-                " completely (⌘Q on macOS / File → Exit on Windows / Linux),"
-                " then click <b>Refresh</b>."
+                f"\u2139\ufe0f  A background {profile.vendor} process was detected."
+                f" Reading cookies is unaffected. If a delete fails, fully quit"
+                f" {profile.vendor} (⌘Q on macOS / File → Exit on Windows / Linux),"
+                f" including any pinned PWAs or Widgets, then click <b>Refresh</b>."
             )
         if messages:
             self._running_banner.setText("<br>".join(messages))

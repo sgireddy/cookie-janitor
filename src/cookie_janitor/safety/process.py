@@ -20,6 +20,28 @@ import psutil
 from cookie_janitor.model.cookie import BrowserKind
 
 # Names are lowercase; Windows comparison normalizes.
+#
+# WARNING: On Windows 11 in particular, ``msedge.exe`` shows up as a
+# running process even when the user has never opened Microsoft Edge.
+# It's used by the Widgets Board, the Copilot side panel, Windows
+# Search, any PWA pinned to the taskbar (Outlook new, Teams, LinkedIn),
+# and WebView2 hosts embedded in unrelated third-party apps. The same
+# is true to a lesser extent for ``chrome.exe`` (Google Drive taskbar
+# app, some Chrome-based Electron replacements).
+#
+# The consequence: ``is_running(BrowserKind.CHROMIUM)`` on Windows will
+# return True far more often than the user's mental model of "the
+# browser is running". This is why ``readers.chromium.read_cookies`` no
+# longer preflights on ``is_running`` — instead it lets the file copy
+# be the arbiter, and only raises ``ChromiumLockedError`` if the file
+# is actually locked. See the long comment in ``read_cookies``.
+#
+# We deliberately do NOT try to narrow the name set here. Every attempt
+# to filter "real browser" from "helper" via cmdline or user-data-dir
+# ends up as whack-a-mole with Microsoft's release cadence; the file
+# lock is the only stable signal. This set is still used to power the
+# informational "browser is running" banner in the UI, where a false
+# positive is annoying but not blocking.
 _PROCESS_NAMES: dict[BrowserKind, frozenset[str]] = {
     BrowserKind.CHROMIUM: frozenset(
         {

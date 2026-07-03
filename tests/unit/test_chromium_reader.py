@@ -377,24 +377,38 @@ def test_read_cookies_refuses_wrong_browser_kind(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_read_cookies_raises_locked_error_when_browser_is_running(tmp_path, monkeypatch):
-    """If ``is_running`` reports the browser is up, we must refuse the
-    read WITHOUT attempting the copy — and raise a
-    :class:`ChromiumLockedError` with a vendor-specific message.
-    """
-    from cookie_janitor.readers.chromium import ChromiumLockedError
+def test_read_cookies_succeeds_when_is_running_true_but_file_is_readable(
+    tmp_path, monkeypatch
+):
+    """CRITICAL v0.6.5 regression test.
 
+    v0.6.4 preflighted ``is_running(BrowserKind.CHROMIUM)`` and refused
+    the read if it returned True. That was wrong on Windows 11 where
+    ``msedge.exe`` legitimately runs as part of the Widgets Board,
+    Copilot pane, Windows Search, taskbar-pinned PWAs and WebView2
+    hosts embedded in third-party apps — none of which hold a lock on
+    the user's actual Edge cookie DB. The v0.6.4 preflight bricked the
+    read path for every such user with a false-positive
+    "Microsoft Edge is still running" dialog.
+
+    The v0.6.5 fix: remove the preflight. Trust the file copy to be
+    the arbiter — if nobody has the file locked, the copy succeeds
+    and we read the cookies regardless of process names.
+    """
     _install_fake_chrome(tmp_path, monkeypatch)
-    # `discover_profiles` uses is_running=False to keep the profile
-    # scan-friendly; flip only the read-time check.
-    monkeypatch.setattr(chromium, "is_running", lambda _kind: False)
+    # Simulate the exact Windows-11 false-positive scenario: some
+    # Chromium-family process IS running (widget host, PWA, etc.) but
+    # the user's actual browser is closed and the Cookies file is
+    # readable.
+    monkeypatch.setattr(chromium, "is_running", lambda _kind: True)
     profiles = chromium.discover_profiles()
     profile = next(iter(profiles))
+    _make_chrome_db(profile.cookies_db_path, [])
 
-    # Now flip is_running for the read-time call.
-    monkeypatch.setattr(chromium, "is_running", lambda _kind: True)
-    with pytest.raises(ChromiumLockedError, match=profile.vendor):
-        chromium.read_cookies(profile)
+    # This MUST succeed. If someone re-adds a preflight is_running
+    # check in the future, this test will fail loudly.
+    result = chromium.read_cookies(profile)
+    assert result == []
 
 
 def test_read_cookies_maps_permission_error_from_copy_to_locked_error(
