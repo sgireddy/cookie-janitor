@@ -4,7 +4,6 @@
 > explains why it's there, and lets you decide what to keep — across browsers
 > and operating systems.
 
-**Status:** early development. Not yet ready for general use.
 
 ## What it is
 
