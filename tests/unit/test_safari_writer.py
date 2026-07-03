@@ -76,9 +76,7 @@ def _build_cookie_record(
     rec = bytearray(total)
     struct.pack_into("<I", rec, 0, total)  # cookie_size
     struct.pack_into("<I", rec, 8, flags)
-    struct.pack_into(
-        "<IIII", rec, 16, domain_off, name_off, path_off, value_off
-    )
+    struct.pack_into("<IIII", rec, 16, domain_off, name_off, path_off, value_off)
     struct.pack_into("<Q", rec, 32, 0xFFFFFFFFFFFFFFFF)  # end-of-cookie sentinel
     struct.pack_into("<d", rec, 40, exp_seconds)
     struct.pack_into("<d", rec, 48, creation_seconds)
@@ -130,9 +128,7 @@ def test_serialize_with_empty_drop_set_is_byte_identical():
     """The central safety property. If we can't faithfully reproduce
     the bytes we read, we have no business writing the file at all.
     """
-    rec1 = _build_cookie_record(
-        domain=".example.com", name="sid", path="/", value="abc123"
-    )
+    rec1 = _build_cookie_record(domain=".example.com", name="sid", path="/", value="abc123")
     rec2 = _build_cookie_record(
         domain="tracker.test",
         name="trk",
@@ -156,19 +152,13 @@ def test_serialize_round_trip_across_multiple_pages_and_unicode_trailer():
     """
     page_a = _build_page(
         [
-            _build_cookie_record(
-                domain=".a.test", name="x", path="/", value="1"
-            ),
+            _build_cookie_record(domain=".a.test", name="x", path="/", value="1"),
         ]
     )
     page_b = _build_page(
         [
-            _build_cookie_record(
-                domain=".b.test", name="y", path="/u", value="2"
-            ),
-            _build_cookie_record(
-                domain=".b.test", name="z", path="/u", value="3"
-            ),
+            _build_cookie_record(domain=".b.test", name="y", path="/u", value="2"),
+            _build_cookie_record(domain=".b.test", name="z", path="/u", value="3"),
         ]
     )
     trailer = b"\x01\x02\x03\x04\x05\x06\x07\x08"  # deliberately non-zero
@@ -185,12 +175,8 @@ def test_serialize_rejects_garbage():
 
 
 def test_serialize_drops_one_cookie_and_preserves_the_others():
-    keep_rec = _build_cookie_record(
-        domain=".keep.test", name="session", path="/", value="ok"
-    )
-    drop_rec = _build_cookie_record(
-        domain=".drop.test", name="trk", path="/", value="bye"
-    )
+    keep_rec = _build_cookie_record(domain=".keep.test", name="session", path="/", value="ok")
+    drop_rec = _build_cookie_record(domain=".drop.test", name="trk", path="/", value="bye")
     source = _build_file([_build_page([keep_rec, drop_rec])])
 
     out = serialize(source, drop={(".drop.test", "/", "trk")})
@@ -210,14 +196,10 @@ def test_serialize_keeps_pages_untouched_when_no_cookies_dropped_from_them():
     """
     page_a = _build_page(
         [
-            _build_cookie_record(
-                domain=".a.test", name="trk", path="/", value="bad"
-            ),
+            _build_cookie_record(domain=".a.test", name="trk", path="/", value="bad"),
         ]
     )
-    page_b_rec = _build_cookie_record(
-        domain=".b.test", name="ok", path="/", value="good"
-    )
+    page_b_rec = _build_cookie_record(domain=".b.test", name="ok", path="/", value="good")
     page_b = _build_page([page_b_rec])
     source = _build_file([page_a, page_b])
 
@@ -239,9 +221,7 @@ def test_serialize_phantom_identity_is_a_noop():
     the file. Otherwise a stale GUI selection (cookie was already
     deleted from another window) would corrupt subsequent reads.
     """
-    rec = _build_cookie_record(
-        domain=".real.test", name="a", path="/", value="v"
-    )
+    rec = _build_cookie_record(domain=".real.test", name="a", path="/", value="v")
     source = _build_file([_build_page([rec])])
     out = serialize(source, drop={("nonexistent.test", "/", "ghost")})
     assert out == source
@@ -265,29 +245,17 @@ def test_payload_says_safari_sync_on_recognises_bookmarks_service():
 
 
 def test_payload_says_safari_sync_on_recognises_explicit_safari_service():
-    payload = {
-        "Accounts": [
-            {"Services": [{"Name": "SAFARI_BOOKMARKS", "Enabled": True}]}
-        ]
-    }
+    payload = {"Accounts": [{"Services": [{"Name": "SAFARI_BOOKMARKS", "Enabled": True}]}]}
     assert safari_writer._payload_says_safari_sync_on(payload) is True
 
 
 def test_payload_says_safari_sync_off_when_service_disabled():
-    payload = {
-        "Accounts": [
-            {"Services": [{"Name": "BOOKMARKS", "Enabled": False}]}
-        ]
-    }
+    payload = {"Accounts": [{"Services": [{"Name": "BOOKMARKS", "Enabled": False}]}]}
     assert safari_writer._payload_says_safari_sync_on(payload) is False
 
 
 def test_payload_says_safari_sync_off_for_unrelated_services():
-    payload = {
-        "Accounts": [
-            {"Services": [{"Name": "MAIL", "Enabled": True}]}
-        ]
-    }
+    payload = {"Accounts": [{"Services": [{"Name": "MAIL", "Enabled": True}]}]}
     assert safari_writer._payload_says_safari_sync_on(payload) is False
 
 
@@ -296,9 +264,7 @@ def test_payload_says_safari_sync_off_for_malformed_input():
     assert safari_writer._payload_says_safari_sync_on({}) is False
     assert safari_writer._payload_says_safari_sync_on([]) is False
     assert safari_writer._payload_says_safari_sync_on(None) is False
-    assert safari_writer._payload_says_safari_sync_on(
-        {"Accounts": "not a list"}
-    ) is False
+    assert safari_writer._payload_says_safari_sync_on({"Accounts": "not a list"}) is False
 
 
 # --- file-system pipeline --------------------------------------------------
@@ -306,12 +272,8 @@ def test_payload_says_safari_sync_off_for_malformed_input():
 
 def test_apply_round_trips_and_creates_backup(tmp_path, monkeypatch):
     """Full pipeline: backup is taken, deletion runs, swap happens."""
-    rec_keep = _build_cookie_record(
-        domain=".keep.test", name="session", path="/", value="ok"
-    )
-    rec_drop = _build_cookie_record(
-        domain=".drop.test", name="trk", path="/", value="x"
-    )
+    rec_keep = _build_cookie_record(domain=".keep.test", name="session", path="/", value="ok")
+    rec_drop = _build_cookie_record(domain=".drop.test", name="trk", path="/", value="x")
     db = tmp_path / "Cookies.binarycookies"
     db.write_bytes(_build_file([_build_page([rec_keep, rec_drop])]))
     db.chmod(0o600)
@@ -322,9 +284,7 @@ def test_apply_round_trips_and_creates_backup(tmp_path, monkeypatch):
     # Avoid invoking real pgrep/ps on the host; Safari is "not running"
     # in this test environment.
     monkeypatch.setattr(safari_writer, "_is_browser_running", lambda _kind: False)
-    monkeypatch.setattr(
-        safari_writer, "_icloud_safari_sync_enabled", lambda: False
-    )
+    monkeypatch.setattr(safari_writer, "_icloud_safari_sync_enabled", lambda: False)
 
     # Build a Cookie with the identity matching rec_drop.
     from cookie_janitor.model.cookie import SameSite, make_cookie
@@ -358,18 +318,14 @@ def test_apply_with_no_changes_leaves_file_byte_identical(tmp_path, monkeypatch)
     """The byte-exact round-trip property must hold ALL THE WAY to
     the on-disk file, not just the in-memory ``serialize`` call.
     """
-    rec = _build_cookie_record(
-        domain=".real.test", name="a", path="/", value="v"
-    )
+    rec = _build_cookie_record(domain=".real.test", name="a", path="/", value="v")
     db = tmp_path / "Cookies.binarycookies"
     file_bytes = _build_file([_build_page([rec])])
     db.write_bytes(file_bytes)
     db.chmod(0o600)
 
     monkeypatch.setattr(safari_writer, "_is_browser_running", lambda _kind: False)
-    monkeypatch.setattr(
-        safari_writer, "_icloud_safari_sync_enabled", lambda: False
-    )
+    monkeypatch.setattr(safari_writer, "_icloud_safari_sync_enabled", lambda: False)
 
     profile = _safari_profile(db)
     result = safari_writer.delete_cookies(
@@ -380,9 +336,7 @@ def test_apply_with_no_changes_leaves_file_byte_identical(tmp_path, monkeypatch)
 
 
 def test_apply_refuses_when_safari_is_running(tmp_path, monkeypatch):
-    rec = _build_cookie_record(
-        domain=".x.test", name="a", path="/", value="v"
-    )
+    rec = _build_cookie_record(domain=".x.test", name="a", path="/", value="v")
     db = tmp_path / "Cookies.binarycookies"
     db.write_bytes(_build_file([_build_page([rec])]))
     db.chmod(0o600)
@@ -390,15 +344,11 @@ def test_apply_refuses_when_safari_is_running(tmp_path, monkeypatch):
 
     profile = _safari_profile(db)
     with pytest.raises(RuntimeError, match="Safari is currently running"):
-        safari_writer.delete_cookies(
-            profile, [], dry_run=False, backup_root=tmp_path / "backups"
-        )
+        safari_writer.delete_cookies(profile, [], dry_run=False, backup_root=tmp_path / "backups")
 
 
 def test_apply_refuses_when_icloud_safari_sync_is_on(tmp_path, monkeypatch):
-    rec = _build_cookie_record(
-        domain=".x.test", name="a", path="/", value="v"
-    )
+    rec = _build_cookie_record(domain=".x.test", name="a", path="/", value="v")
     db = tmp_path / "Cookies.binarycookies"
     db.write_bytes(_build_file([_build_page([rec])]))
     db.chmod(0o600)
@@ -410,21 +360,15 @@ def test_apply_refuses_when_icloud_safari_sync_is_on(tmp_path, monkeypatch):
 
     profile = _safari_profile(db)
     with pytest.raises(SafariSyncEnabledError) as excinfo:
-        safari_writer.delete_cookies(
-            profile, [], dry_run=False, backup_root=tmp_path / "backups"
-        )
+        safari_writer.delete_cookies(profile, [], dry_run=False, backup_root=tmp_path / "backups")
     msg = str(excinfo.value)
     assert "iCloud" in msg
     assert "System Settings" in msg
     assert "COOKIE_JANITOR_ALLOW_SAFARI_SYNC" in msg
 
 
-def test_apply_proceeds_when_icloud_sync_override_env_is_set(
-    tmp_path, monkeypatch
-):
-    rec = _build_cookie_record(
-        domain=".x.test", name="a", path="/", value="v"
-    )
+def test_apply_proceeds_when_icloud_sync_override_env_is_set(tmp_path, monkeypatch):
+    rec = _build_cookie_record(domain=".x.test", name="a", path="/", value="v")
     db = tmp_path / "Cookies.binarycookies"
     db.write_bytes(_build_file([_build_page([rec])]))
     db.chmod(0o600)
@@ -447,9 +391,7 @@ def test_restore_from_backup_round_trips(tmp_path, monkeypatch):
     Mirrors the recovery path the user is told about in the post-
     delete dialog ("cookie-janitor restore <backup>").
     """
-    rec = _build_cookie_record(
-        domain=".x.test", name="a", path="/", value="original"
-    )
+    rec = _build_cookie_record(domain=".x.test", name="a", path="/", value="original")
     original = _build_file([_build_page([rec])])
     backup = tmp_path / "backup" / "Cookies.binarycookies"
     backup.parent.mkdir(parents=True)

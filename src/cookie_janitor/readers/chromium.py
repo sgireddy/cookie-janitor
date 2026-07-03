@@ -433,8 +433,7 @@ def _read_from_copy(db_path: Path) -> Iterator[Cookie]:
         }
         if "name" not in cols:
             log.warning(
-                "Chromium cookies table at %s has no 'name' column "
-                "(schema cols: %s); skipping.",
+                "Chromium cookies table at %s has no 'name' column (schema cols: %s); skipping.",
                 db_path,
                 sorted(cols),
             )
@@ -466,7 +465,11 @@ def _read_from_copy(db_path: Path) -> Iterator[Cookie]:
         # with text_factory=bytes this makes the read airtight.
         if encrypted_col:
             select_parts.append(f"CAST({encrypted_col} AS BLOB)")
-        sql = f"SELECT {', '.join(select_parts)} FROM cookies"  # noqa: S608
+        # noqa/nosec: `select_parts` is built exclusively from column-
+        # name literals chosen by matching against Chromium's schema
+        # version (e.g. "is_secure" vs "secure"); no user input flows
+        # into the SQL. There is no WHERE clause. Safe.
+        sql = f"SELECT {', '.join(select_parts)} FROM cookies"  # noqa: S608  # nosec B608
 
         for row in conn.execute(sql):
             (name, host, path, expires, secure, http_only, same_site, value, *rest) = row

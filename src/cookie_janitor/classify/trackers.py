@@ -355,6 +355,7 @@ AUTH_SHAPE_SUBSTRINGS: tuple[str, ...] = (
 # Public helpers. Tiny, single-purpose, easy to test.
 # ---------------------------------------------------------------------------
 
+
 def _normalise_host(host: str) -> str:
     """Return a lowercase host with no leading dot.
 

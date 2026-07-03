@@ -77,9 +77,7 @@ def default_log_file_path() -> Path:
         root = Path(base) if base else Path.home() / "AppData" / "Local"
         return root / "cookie-janitor" / "logs" / "cookie-janitor.log"
     if sys.platform == "darwin":
-        return (
-            Path.home() / "Library" / "Logs" / "cookie-janitor" / "cookie-janitor.log"
-        )
+        return Path.home() / "Library" / "Logs" / "cookie-janitor" / "cookie-janitor.log"
     xdg = os.environ.get("XDG_STATE_HOME")
     root = Path(xdg) if xdg else Path.home() / ".local" / "state"
     return root / "cookie-janitor" / "cookie-janitor.log"
@@ -106,10 +104,7 @@ def _install_last_resort_excepthook(log_path: Path) -> None:
     ) -> None:
         try:
             with log_path.open("a", encoding="utf-8") as f:
-                f.write(
-                    f"\n=== UNCAUGHT EXCEPTION at "
-                    f"{datetime.now(tz=UTC).isoformat()} ===\n"
-                )
+                f.write(f"\n=== UNCAUGHT EXCEPTION at {datetime.now(tz=UTC).isoformat()} ===\n")
                 traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
         except OSError:
             # If we can't even write the traceback, we're already in

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.resources
 import logging
-import subprocess
+import subprocess  # nosec B404
 import sys
 
 from PySide6.QtCore import QPoint, QSortFilterProxyModel, Qt
@@ -62,9 +62,7 @@ def _build_policy(mode: ClassifierMode) -> UserPolicy:
     return UserPolicy(keep_domains=load_allowlist(), mode=mode)
 
 
-def _decisions_for(
-    profile: Profile, db: CookieDatabase, mode: ClassifierMode
-) -> list[Decision]:
+def _decisions_for(profile: Profile, db: CookieDatabase, mode: ClassifierMode) -> list[Decision]:
     policy = _build_policy(mode)
     cookies = readers.read_cookies(profile)
     return [decide(c, policy=policy, cookie_db=db) for c in cookies]
@@ -74,9 +72,7 @@ def _decisions_for(
 #: Disk Access pane. Stable since macOS 13 Ventura; on older systems it
 #: opens the old Security & Privacy app to the Privacy tab — still a
 #: huge UX win over "go find this yourself in System Settings".
-_FULL_DISK_ACCESS_URL = (
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-)
+_FULL_DISK_ACCESS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
 
 def _open_macos_full_disk_access_pane() -> None:
@@ -92,7 +88,10 @@ def _open_macos_full_disk_access_pane() -> None:
     # PATH) both to satisfy ruff's S607 and as a small defence against
     # PATH-poisoning. ``subprocess.Popen`` avoids blocking the GUI.
     try:
-        subprocess.Popen(  # noqa: S603 - fixed argv, no shell, hardcoded URL
+        # noqa/nosec dual-suppression: fixed argv, no shell, hardcoded URL.
+        # /usr/bin/open is the macOS base-system URL-handler launcher
+        # since 10.0. Absolute path defends against PATH poisoning.
+        subprocess.Popen(  # noqa: S603  # nosec B603
             ["/usr/bin/open", _FULL_DISK_ACCESS_URL]
         )
     except OSError as exc:
@@ -266,15 +265,12 @@ class MainWindow(QMainWindow):
         )
         site_action_row = QHBoxLayout()
         self._site_select_btn = QPushButton("Select all listed sites")
-        self._site_select_btn.setToolTip(
-            "Tick every site that isn't protected by your allow list."
-        )
+        self._site_select_btn.setToolTip("Tick every site that isn't protected by your allow list.")
         self._site_select_btn.clicked.connect(self._on_select_all_sites)
         site_action_row.addWidget(self._site_select_btn)
         self._site_protect_btn = QPushButton("Add selected site to allow list")
         self._site_protect_btn.setToolTip(
-            "Take the currently highlighted row and add its host to"
-            " your allow list."
+            "Take the currently highlighted row and add its host to your allow list."
         )
         self._site_protect_btn.clicked.connect(self._on_protect_selected_site)
         site_action_row.addWidget(self._site_protect_btn)
@@ -285,9 +281,7 @@ class MainWindow(QMainWindow):
         self._site_table.setAlternatingRowColors(True)
         self._site_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._site_table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
-        self._site_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Interactive
-        )
+        self._site_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self._site_table.horizontalHeader().setStretchLastSection(True)
         self._site_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._site_table.customContextMenuRequested.connect(self._on_site_context_menu)
@@ -398,14 +392,13 @@ class MainWindow(QMainWindow):
         #   2. The browser is currently running.
         #   3. There are no cookies to delete.
         can_write = writers.supports_delete(profile.browser)
-        self._delete_btn.setEnabled(
-            can_write and not profile.is_running and bool(decisions)
-        )
+        self._delete_btn.setEnabled(can_write and not profile.is_running and bool(decisions))
         if not can_write:
             tip = (
-                # ruff S608 triggers on any f-string containing the word
-                # "delete"; this is plain UI copy, not a SQL query.
-                f"Cookie Janitor can read {profile.vendor} cookies but"  # noqa: S608
+                # ruff S608 / bandit B608 both trigger on any f-string
+                # containing the word "delete"; this is plain UI copy,
+                # not a SQL query.
+                f"Cookie Janitor can read {profile.vendor} cookies but"  # noqa: S608  # nosec B608
                 " doesn't yet delete them. Use this view to audit what's"
                 " there; delete from inside Safari's own Settings →"
                 " Privacy → Manage Website Data."
@@ -616,9 +609,7 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            result = writers.delete_cookies(
-                profile, [d.cookie for d in selected], dry_run=False
-            )
+            result = writers.delete_cookies(profile, [d.cookie for d in selected], dry_run=False)
         except SafariSyncEnabledError as exc:
             # Distinct UX from a generic failure: this isn't a crash,
             # it's a deliberate refusal with a clear remedy. We didn't
@@ -802,18 +793,14 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self._site_table)
         if site.on_allow_list:
-            unprotect = QAction(
-                f"Remove {site.host} from allow list (will allow cleaning)", menu
-            )
+            unprotect = QAction(f"Remove {site.host} from allow list (will allow cleaning)", menu)
             unprotect.triggered.connect(lambda: self._allowlist_remove(site.host))
             menu.addAction(unprotect)
         else:
             protect = QAction(f"Always keep cookies on {site.host}", menu)
             protect.triggered.connect(lambda: self._allowlist_add(site.host))
             menu.addAction(protect)
-            tick_only = QAction(
-                f"Tick every cookie on {site.host} for deletion", menu
-            )
+            tick_only = QAction(f"Tick every cookie on {site.host} for deletion", menu)
             site_row = src_index.row()
 
             def _tick(row: int = site_row) -> None:

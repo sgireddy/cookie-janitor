@@ -246,8 +246,7 @@ def test_discover_finds_sandboxed_path(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     home = tmp_path / "home"
     cookies = (
-        home
-        / "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"
+        home / "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"
     )
     cookies.parent.mkdir(parents=True)
     cookies.write_bytes(_build_binarycookies([_build_page([])]))

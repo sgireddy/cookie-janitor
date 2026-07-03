@@ -97,6 +97,46 @@ on):
   via GitHub no-reply email); do not override per-commit.
 - Security-sensitive PRs require two reviewers.
 
+## Local gate — run BEFORE every push
+
+CI runs these on every push; if any is red locally, do not push. Do all
+of them, not just `ruff check`. Missing `ruff format --check` cost us a
+week of red CI in v0.6.2–v0.6.5.
+
+```bash
+uv run ruff check src tests
+uv run ruff format --check src tests   # <-- separate tool from `ruff check`
+uv run mypy --strict src
+uv run bandit -q -r src                # SAST; belt to ruff's `S` suspenders
+QT_QPA_PLATFORM=offscreen uv run pytest -q
+uv export --no-emit-project --no-hashes --frozen > /tmp/reqs.txt
+uv run pip-audit --strict --requirement /tmp/reqs.txt
+```
+
+## SAST suppression policy
+
+Every ruff `S`-rule / bandit `B`-rule finding must be either **fixed** or
+**dual-suppressed**. Dual = both dialects, both required, in this exact
+form on the flagged line:
+
+```python
+some_call(...)  # noqa: SXXX  # nosec BXXX
+```
+
+…with a **standalone comment above** the flagged line explaining WHY
+it's safe. Bandit's parser can't handle prose after `# nosec`, so the
+justification must be a separate comment. Example:
+
+```python
+# host_col resolves to one of two literal strings ("host_key" or "host")
+# based on Chromium schema version — no user input. Values below are
+# parameterised with `?` placeholders. Safe.
+sql = f"DELETE FROM cookies WHERE {host_col} = ?"  # noqa: S608  # nosec B608
+```
+
+Never suppress without justification. Never suppress one dialect but
+not the other — CI runs both tools and both must stay green.
+
 ## Open questions for the maintainer
 
 - Project name `cookie-janitor` is a placeholder. Confirm or rename.

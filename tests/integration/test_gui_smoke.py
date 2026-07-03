@@ -171,10 +171,7 @@ def test_main_window_lists_chromium_and_safari_profiles_in_dropdown(
     window = MainWindow()
     qtbot.addWidget(window)
 
-    labels = [
-        window._profile_box.itemText(i)
-        for i in range(window._profile_box.count())
-    ]
+    labels = [window._profile_box.itemText(i) for i in range(window._profile_box.count())]
     # Every supported family must appear in the dropdown, identifiable
     # by its vendor string. We don't assert the exact order — that's
     # the dispatcher's contract (Firefox first, then Chromium, then
@@ -247,9 +244,7 @@ def test_format_read_error_renders_actionable_locked_message(tmp_path):
         cookies_db_path=cookies_path,
         is_running=True,
     )
-    exc = ChromiumLockedError(
-        "Microsoft Edge appears to be running. Please quit it."
-    )
+    exc = ChromiumLockedError("Microsoft Edge appears to be running. Please quit it.")
     title, body, detail = _format_read_error(profile, exc)
 
     # The title must name the actual vendor, not the family.

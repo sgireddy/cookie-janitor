@@ -226,9 +226,7 @@ def test_encrypted_value_is_surfaced_as_marker(tmp_path, monkeypatch):
             }
         ],
     )
-    profile = next(
-        p for p in chromium.discover_profiles() if p.profile_name == "Default"
-    )
+    profile = next(p for p in chromium.discover_profiles() if p.profile_name == "Default")
     cookies = chromium.read_cookies(profile)
     assert len(cookies) == 1
     # value_length should be the length of the marker, not the empty
@@ -237,9 +235,7 @@ def test_encrypted_value_is_surfaced_as_marker(tmp_path, monkeypatch):
     assert cookies[0].value_length == len(b"<encrypted>")
 
 
-def test_read_survives_encrypted_value_with_text_storage_class(
-    tmp_path, monkeypatch
-):
+def test_read_survives_encrypted_value_with_text_storage_class(tmp_path, monkeypatch):
     """Regression for the v0.5.1 user report::
 
         Cookie Janitor couldn't read cookies for Google Chrome — Default:
@@ -285,9 +281,7 @@ def test_read_survives_encrypted_value_with_text_storage_class(
     finally:
         conn.close()
 
-    profile = next(
-        p for p in chromium.discover_profiles() if p.profile_name == "Default"
-    )
+    profile = next(p for p in chromium.discover_profiles() if p.profile_name == "Default")
     # The fix: must not raise OperationalError. Before the fix this
     # line blew up with "Could not decode to UTF-8 column ...".
     cookies = chromium.read_cookies(profile)
@@ -337,9 +331,7 @@ def test_read_replaces_non_utf8_bytes_in_text_columns(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    profile = next(
-        p for p in chromium.discover_profiles() if p.profile_name == "Default"
-    )
+    profile = next(p for p in chromium.discover_profiles() if p.profile_name == "Default")
     cookies = chromium.read_cookies(profile)
     assert len(cookies) == 2
     names = {c.name for c in cookies}
@@ -377,9 +369,7 @@ def test_read_cookies_refuses_wrong_browser_kind(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_read_cookies_succeeds_when_is_running_true_but_file_is_readable(
-    tmp_path, monkeypatch
-):
+def test_read_cookies_succeeds_when_is_running_true_but_file_is_readable(tmp_path, monkeypatch):
     """CRITICAL v0.6.5 regression test.
 
     v0.6.4 preflighted ``is_running(BrowserKind.CHROMIUM)`` and refused
@@ -411,9 +401,7 @@ def test_read_cookies_succeeds_when_is_running_true_but_file_is_readable(
     assert result == []
 
 
-def test_read_cookies_maps_permission_error_from_copy_to_locked_error(
-    tmp_path, monkeypatch
-):
+def test_read_cookies_maps_permission_error_from_copy_to_locked_error(tmp_path, monkeypatch):
     """If ``safe_copy`` itself raises ``PermissionError`` (the classic
     Windows sharing-violation surface), we must re-raise as
     ``ChromiumLockedError`` — not leak the raw errno-13 message.
@@ -451,9 +439,7 @@ def test_read_cookies_maps_permission_error_from_copy_to_locked_error(
     assert "MicrosoftEdgeUpdate" in msg or "background" in msg
 
 
-def test_read_cookies_maps_oserror_from_wal_copy_to_locked_error(
-    tmp_path, monkeypatch
-):
+def test_read_cookies_maps_oserror_from_wal_copy_to_locked_error(tmp_path, monkeypatch):
     """WAL/SHM sidecars being locked is a strong 'browser is writing'
     signal. Must also map to ``ChromiumLockedError`` (not leak OSError).
     """

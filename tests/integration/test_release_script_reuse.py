@@ -60,9 +60,9 @@ def _make_fixture(tmp_path: Path) -> Path:
     stub.write_text(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        'version=$(awk -F\\" \'/^version = / { print $2; exit }\' '
+        "version=$(awk -F\\\" '/^version = / { print $2; exit }' "
         '"$(dirname "$0")/../pyproject.toml")\n'
-        'mkdir -p dist\n'
+        "mkdir -p dist\n"
         'touch "dist/Cookie-Janitor-${version}-universal2.dmg"\n'
         'echo "deadbeef" > "dist/Cookie-Janitor-${version}-universal2.dmg.sha256"\n'
         'echo "[stub-build] produced dist/Cookie-Janitor-${version}-universal2.dmg"\n'
@@ -72,9 +72,7 @@ def _make_fixture(tmp_path: Path) -> Path:
     # Init a minimal git repo so the script's `git config` / `git
     # rev-parse` calls succeed.
     subprocess.run(["git", "init", "-q"], cwd=work, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "openhands@all-hands.dev"], cwd=work, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "openhands@all-hands.dev"], cwd=work, check=True)
     subprocess.run(["git", "config", "user.name", "openhands"], cwd=work, check=True)
     subprocess.run(
         [
@@ -186,9 +184,7 @@ def test_fresh_dist_triggers_build(tmp_path):
 def test_existing_dmg_for_current_version_is_reused(tmp_path):
     work = _make_fixture(tmp_path)
     version = _read_version()
-    result = _run(
-        work, extra_dmgs=[f"Cookie-Janitor-{version}-universal2.dmg"]
-    )
+    result = _run(work, extra_dmgs=[f"Cookie-Janitor-{version}-universal2.dmg"])
     assert result.returncode == 0, result.stderr
     assert f"reusing existing build for {version}" in result.stdout
     assert "[stub-build]" not in result.stdout, (

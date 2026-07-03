@@ -227,20 +227,13 @@ class ModePanel(QWidget):
         QMessageBox.information(
             self,
             f"{spec.title} mode",
-            f"<b>{spec.title}</b> — {spec.one_liner}<br><br>{spec.details}".replace(
-                "\n", "<br>"
-            ),
+            f"<b>{spec.title}</b> — {spec.one_liner}<br><br>{spec.details}".replace("\n", "<br>"),
         )
 
     def _show_compare_dialog(self) -> None:
-        rows = "".join(
-            f"<tr><td><b>{s.title}</b></td><td>{s.one_liner}</td></tr>"
-            for s in _SPECS
-        )
+        rows = "".join(f"<tr><td><b>{s.title}</b></td><td>{s.one_liner}</td></tr>" for s in _SPECS)
         body = (
-            "<table cellpadding='6' cellspacing='0' border='0'>"
-            + rows
-            + "</table>"
+            "<table cellpadding='6' cellspacing='0' border='0'>" + rows + "</table>"
             "<br><i>Click the ⓘ next to a mode for the full explanation.</i>"
             "<br><br>Allow-list matches always win, in every mode."
         )

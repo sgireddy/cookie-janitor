@@ -86,18 +86,18 @@ def _windows_is_elevated() -> bool:  # pragma: no cover - exercised only on Wind
     kernel32.CloseHandle.restype = wintypes.BOOL
 
     advapi32.OpenProcessToken.argtypes = [
-        wintypes.HANDLE,                     # ProcessHandle
-        wintypes.DWORD,                      # DesiredAccess
-        ctypes.POINTER(wintypes.HANDLE),     # TokenHandle (out)
+        wintypes.HANDLE,  # ProcessHandle
+        wintypes.DWORD,  # DesiredAccess
+        ctypes.POINTER(wintypes.HANDLE),  # TokenHandle (out)
     ]
     advapi32.OpenProcessToken.restype = wintypes.BOOL
 
     advapi32.GetTokenInformation.argtypes = [
-        wintypes.HANDLE,                     # TokenHandle
-        ctypes.c_int,                        # TokenInformationClass
-        ctypes.c_void_p,                     # TokenInformation (out)
-        wintypes.DWORD,                      # TokenInformationLength
-        ctypes.POINTER(wintypes.DWORD),      # ReturnLength (out)
+        wintypes.HANDLE,  # TokenHandle
+        ctypes.c_int,  # TokenInformationClass
+        ctypes.c_void_p,  # TokenInformation (out)
+        wintypes.DWORD,  # TokenInformationLength
+        ctypes.POINTER(wintypes.DWORD),  # ReturnLength (out)
     ]
     advapi32.GetTokenInformation.restype = wintypes.BOOL
     # -------------------------------------------------------------------

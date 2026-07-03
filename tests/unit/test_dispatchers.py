@@ -161,21 +161,13 @@ def test_safari_writer_apply_with_empty_input_is_noop(tmp_path):
     # num_cookies(4) + footer(4). File = "cook" + page_count(4) +
     # page_sizes(4) + page(12) + 8-byte trailer.
     page = b"\x00\x00\x01\x00" + struct.pack("<I", 0) + b"\x00\x00\x00\x00"
-    file_bytes = (
-        b"cook"
-        + struct.pack(">I", 1)
-        + struct.pack(">I", len(page))
-        + page
-        + b"\x00" * 8
-    )
+    file_bytes = b"cook" + struct.pack(">I", 1) + struct.pack(">I", len(page)) + page + b"\x00" * 8
     db.write_bytes(file_bytes)
     db.chmod(0o600)
 
     profile = _fake_profile(BrowserKind.SAFARI, db)
     backup_root = tmp_path / "backups"
-    result = writers.delete_cookies(
-        profile, [], dry_run=False, backup_root=backup_root
-    )
+    result = writers.delete_cookies(profile, [], dry_run=False, backup_root=backup_root)
     assert result.dry_run is False
     assert result.actually_deleted == 0
     assert result.requested_deletes == 0

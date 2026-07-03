@@ -78,9 +78,7 @@ def test_default_log_file_path_uses_platform_convention(monkeypatch, tmp_path):
     assert path.is_absolute()
 
 
-def test_default_log_file_path_honours_xdg_state_home_on_posix(
-    monkeypatch, tmp_path
-):
+def test_default_log_file_path_honours_xdg_state_home_on_posix(monkeypatch, tmp_path):
     """On Linux, ``XDG_STATE_HOME`` overrides the fallback."""
     if sys.platform not in ("linux", "linux2"):
         # Other POSIXes (macOS/win) have their own conventions
@@ -116,8 +114,7 @@ def test_install_survives_when_stderr_is_none(monkeypatch, tmp_path):
     # No StreamHandler must be attached — the whole point of the fix.
     handlers = logging.getLogger().handlers
     assert not any(
-        isinstance(h, logging.StreamHandler)
-        and not isinstance(h, logging.FileHandler)
+        isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
         for h in handlers
     )
 
@@ -148,8 +145,7 @@ def test_install_still_attaches_stream_handler_when_stderr_is_real(tmp_path):
     stream_handlers = [
         h
         for h in logging.getLogger().handlers
-        if isinstance(h, logging.StreamHandler)
-        and not isinstance(h, logging.FileHandler)
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
     ]
     assert len(stream_handlers) == 1
 

@@ -298,8 +298,7 @@ def restore(
     matches = [p for p in profiles if p.profile_name == profile_name]
     if not matches:
         typer.echo(
-            f"ERROR: no {browser_kind.value} profile named {profile_name!r}"
-            f" found on this machine",
+            f"ERROR: no {browser_kind.value} profile named {profile_name!r} found on this machine",
             err=True,
         )
         raise typer.Exit(code=2)

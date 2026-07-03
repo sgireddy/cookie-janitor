@@ -80,10 +80,10 @@ class SafariSyncEnabledError(SafariWriteError):
     Carries actionable copy in ``str(exc)`` for the GUI to display.
     """
 
-    # ruff S608 fires on any multi-line string literal containing the
-    # word "delete"; this is plain English UI copy, not a SQL query.
+    # ruff S608 / bandit B608 both fire on any string literal
+    # containing "delete"; this is plain English UI copy, not SQL.
     GUIDANCE: str = (
-        "iCloud → Safari is currently enabled on this Mac. If you delete"  # noqa: S608
+        "iCloud → Safari is currently enabled on this Mac. If you delete"  # noqa: S608  # nosec B608
         " cookies now, they may sync back from your other Apple devices"
         " within minutes — making it look like Cookie Janitor didn't"
         " work.\n"
@@ -103,8 +103,7 @@ class SafariSyncEnabledError(SafariWriteError):
 
     def __init__(self) -> None:
         super().__init__(
-            "iCloud Safari sync is enabled; deleted cookies may resurrect."
-            f" {self.GUIDANCE}"
+            f"iCloud Safari sync is enabled; deleted cookies may resurrect. {self.GUIDANCE}"
         )
 
 
@@ -167,9 +166,7 @@ def _extract_page_cookies(page: bytes) -> list[_RawCookie]:
         if size < 56 or off + size > len(page):
             raise BinaryCookiesWriteError(f"cookie at {off}: impossible size {size}")
         rec = page[off : off + size]
-        domain_off, name_off, path_off, value_off = struct.unpack_from(
-            "<IIII", rec, 16
-        )
+        domain_off, name_off, path_off, value_off = struct.unpack_from("<IIII", rec, 16)
         domain = _read_cstring_from_record(rec, domain_off)
         name = _read_cstring_from_record(rec, name_off)
         path = _read_cstring_from_record(rec, path_off) or "/"
@@ -237,9 +234,7 @@ def serialize(source: bytes, drop: set[tuple[str, str, str]] | None = None) -> b
         raise BinaryCookiesWriteError(f"page_count={page_count} looks corrupt")
 
     page_size_offset = 8
-    page_sizes = list(
-        struct.unpack_from(f">{page_count}I", source, page_size_offset)
-    )
+    page_sizes = list(struct.unpack_from(f">{page_count}I", source, page_size_offset))
     cursor = page_size_offset + 4 * page_count
     pages_start = cursor
     new_pages: list[bytes] = []
@@ -279,9 +274,7 @@ def serialize(source: bytes, drop: set[tuple[str, str, str]] | None = None) -> b
             # what makes the whole writer safe. If we get here, refuse
             # to write — the file would be subtly different from the
             # original.
-            raise BinaryCookiesWriteError(
-                "internal round-trip mismatch on unchanged file"
-            )
+            raise BinaryCookiesWriteError("internal round-trip mismatch on unchanged file")
         return rebuilt
 
     new_sizes = [len(p) for p in new_pages]
@@ -414,9 +407,7 @@ def _make_backup(profile: Profile, root: Path) -> Path:
     src_st = src.stat()
     bkp_st = backup_path.stat()
     if src_st.st_size != bkp_st.st_size:
-        raise RuntimeError(
-            f"backup size mismatch: src={src_st.st_size} bkp={bkp_st.st_size}"
-        )
+        raise RuntimeError(f"backup size mismatch: src={src_st.st_size} bkp={bkp_st.st_size}")
     if _hash_file(src) != _hash_file(backup_path):
         raise RuntimeError(f"backup hash mismatch for {src} -> {backup_path}")
     log.info("Backed up %s -> %s (%d bytes)", src, backup_path, bkp_st.st_size)
@@ -468,8 +459,7 @@ def delete_cookies(
 
     if _is_browser_running(profile.browser):
         raise RuntimeError(
-            "Refusing to write: Safari is currently running. Quit Safari"
-            " (Cmd+Q) and try again."
+            "Refusing to write: Safari is currently running. Quit Safari (Cmd+Q) and try again."
         )
 
     if os.environ.get(_ALLOW_SYNC_ENV) != "1" and _icloud_safari_sync_enabled():
@@ -497,8 +487,7 @@ def delete_cookies(
     working = src.with_name(src.name + ".cj-tmp")
     if working.exists():
         raise RuntimeError(
-            f"Working file already exists from a previous run: {working}."
-            " Move it aside and retry."
+            f"Working file already exists from a previous run: {working}. Move it aside and retry."
         )
     working.touch(mode=0o600, exist_ok=False)
     try:
@@ -545,9 +534,7 @@ def _count_present(source: bytes, identities: set[tuple[str, str, str]]) -> int:
         return 0
     page_count: int = struct.unpack_from(">I", source, 4)[0]
     page_size_offset = 8
-    page_sizes = list(
-        struct.unpack_from(f">{page_count}I", source, page_size_offset)
-    )
+    page_sizes = list(struct.unpack_from(f">{page_count}I", source, page_size_offset))
     cursor = page_size_offset + 4 * page_count
     found = 0
     for size in page_sizes:
@@ -588,8 +575,6 @@ def restore_from_backup(profile: Profile, backup_path: Path) -> None:
             try:
                 working.unlink()
             except OSError:
-                log.exception(
-                    "Failed to clean up restore working file %s", working
-                )
+                log.exception("Failed to clean up restore working file %s", working)
         raise
     log.info("Restored %s from %s", src, backup_path)

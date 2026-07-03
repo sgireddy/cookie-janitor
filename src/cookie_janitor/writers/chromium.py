@@ -106,9 +106,13 @@ def _delete_rows(db_path: Path, identities: Iterable[tuple[str, str, str]]) -> i
         host_col = "host_key" if "host_key" in cols else "host"
         conn.execute("PRAGMA foreign_keys = OFF")
         conn.execute("BEGIN IMMEDIATE")
-        sql = (
-            f"DELETE FROM cookies WHERE {host_col} = ? AND path = ? AND name = ?"  # noqa: S608
-        )
+        # noqa/nosec: `host_col` resolves to one of two literal strings
+        # ("host_key" or "host") based on Chromium schema version — no
+        # user input. The three real values (host, path, name) are
+        # properly parameterised with `?` placeholders below. This IS
+        # the correct way to write this DELETE; static tools can't see
+        # that `host_col` is enum-constrained.
+        sql = f"DELETE FROM cookies WHERE {host_col} = ? AND path = ? AND name = ?"  # noqa: S608  # nosec B608
         for host, path, name in identities:
             cur = conn.execute(sql, (host, path, name))
             deleted += cur.rowcount or 0
@@ -168,8 +172,7 @@ def delete_cookies(
     working = src.with_name(src.name + ".cj-tmp")
     if working.exists():
         raise RuntimeError(
-            f"Working file already exists from a previous run: {working}."
-            " Move it aside and retry."
+            f"Working file already exists from a previous run: {working}. Move it aside and retry."
         )
     working.touch(mode=0o600, exist_ok=False)
     try:

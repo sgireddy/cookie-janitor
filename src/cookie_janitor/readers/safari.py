@@ -225,33 +225,23 @@ def read_cookies(profile: Profile) -> list[Cookie]:
     except PermissionError as exc:
         # macOS TCC denies with EPERM (errno 1); some filesystems
         # return EACCES (errno 13). Either way we want the same UX.
-        raise SafariPermissionDeniedError(
-            profile.cookies_db_path, original=exc
-        ) from exc
+        raise SafariPermissionDeniedError(profile.cookies_db_path, original=exc) from exc
     except OSError as exc:
         if exc.errno in (errno.EPERM, errno.EACCES):
-            raise SafariPermissionDeniedError(
-                profile.cookies_db_path, original=exc
-            ) from exc
+            raise SafariPermissionDeniedError(profile.cookies_db_path, original=exc) from exc
         raise
     return list(_parse(data))
 
 
 def _parse(data: bytes) -> Iterator[Cookie]:
     if len(data) < 8 or data[:4] != b"cook":
-        raise BinaryCookiesError(
-            "not a Safari .binarycookies file (missing 'cook' magic)."
-        )
+        raise BinaryCookiesError("not a Safari .binarycookies file (missing 'cook' magic).")
     page_count: int = struct.unpack_from(">I", data, 4)[0]
     if page_count > 100_000:
-        raise BinaryCookiesError(
-            f"page_count={page_count} looks corrupt (sanity bound 100000)."
-        )
+        raise BinaryCookiesError(f"page_count={page_count} looks corrupt (sanity bound 100000).")
 
     page_size_offset = 8
-    page_sizes: list[int] = list(
-        struct.unpack_from(f">{page_count}I", data, page_size_offset)
-    )
+    page_sizes: list[int] = list(struct.unpack_from(f">{page_count}I", data, page_size_offset))
     cursor = page_size_offset + 4 * page_count
     for i, size in enumerate(page_sizes):
         if cursor + size > len(data):
@@ -282,15 +272,11 @@ def _parse_page(page: bytes) -> Iterator[Cookie]:
         raise BinaryCookiesError(f"unexpected page magic: {page[:4]!r}")
     num_cookies: int = struct.unpack_from("<I", page, 4)[0]
     if num_cookies > 100_000:
-        raise BinaryCookiesError(
-            f"num_cookies={num_cookies} looks corrupt (sanity bound 100000)."
-        )
+        raise BinaryCookiesError(f"num_cookies={num_cookies} looks corrupt (sanity bound 100000).")
     offsets_end = 8 + 4 * num_cookies
     if offsets_end > len(page):
         raise BinaryCookiesError("cookie-offset table extends past end of page")
-    offsets: list[int] = list(
-        struct.unpack_from(f"<{num_cookies}I", page, 8)
-    )
+    offsets: list[int] = list(struct.unpack_from(f"<{num_cookies}I", page, 8))
     for off in offsets:
         try:
             yield _parse_cookie(page, off)
@@ -307,9 +293,7 @@ def _parse_cookie(page: bytes, offset: int) -> Cookie:
     if cookie_size < 56 or offset + cookie_size > len(page):
         raise BinaryCookiesError(f"impossible cookie_size={cookie_size}")
     flags: int = struct.unpack_from("<I", rec, 8)[0]
-    domain_offset, name_offset, path_offset, value_offset = struct.unpack_from(
-        "<IIII", rec, 16
-    )
+    domain_offset, name_offset, path_offset, value_offset = struct.unpack_from("<IIII", rec, 16)
     expiry_seconds: float = struct.unpack_from("<d", rec, 40)[0]
     # creation_seconds at offset 48 — we don't need it for the classifier.
 

@@ -69,6 +69,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev --frozen
 
+      # Bandit (SAST) — kept alongside Ruff `S` as belt-and-braces
+      # defence in depth. Every S-rule finding must be silenced in BOTH
+      # dialects (`# noqa: SXXX` for Ruff, `# nosec BXXX` for Bandit)
+      # WITH a justification comment. Two independent tools; a
+      # regression in either shows up as a red build.
       - name: Bandit (SAST)
         run: uv run bandit -q -r src
 

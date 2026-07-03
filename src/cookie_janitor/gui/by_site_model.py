@@ -82,9 +82,7 @@ class BySiteModel(QAbstractTableModel):
         for host, indices in by_domain.items():
             sub = [decs[i] for i in indices]
             recommended = sum(1 for d in sub if d.verdict is Verdict.DELETE)
-            allow_listed = any(
-                d.source == "user-keep-list:domain" for d in sub
-            )
+            allow_listed = any(d.source == "user-keep-list:domain" for d in sub)
             out.append(
                 SiteRow(
                     host=host,

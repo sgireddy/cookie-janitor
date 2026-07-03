@@ -61,6 +61,7 @@ def test_windows_check_failure_propagates_with_error_code(monkeypatch):
     error message must include the concrete Windows error code so the
     user has something diagnosable to send us.
     """
+
     def _boom() -> bool:
         raise PrivilegedExecutionError(
             "Could not determine process elevation state "

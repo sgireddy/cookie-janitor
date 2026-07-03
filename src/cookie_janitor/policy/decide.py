@@ -241,17 +241,12 @@ def decide(
             desc = cookie_db.lookup(cookie.name, cookie.domain)
             if desc is not None:
                 category = desc.category
-                why_extra = (
-                    f" The Open Cookie Database classifies it as {desc.category.value}."
-                )
+                why_extra = f" The Open Cookie Database classifies it as {desc.category.value}."
         return Decision(
             cookie=cookie,
             verdict=Verdict.KEEP,
             category=category,
-            rationale=(
-                "Audit-only mode: nothing will be selected for deletion."
-                + why_extra
-            ),
+            rationale=("Audit-only mode: nothing will be selected for deletion." + why_extra),
             source="audit-only",
             confidence=1.0,
         )
