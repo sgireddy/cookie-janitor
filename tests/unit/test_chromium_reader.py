@@ -363,3 +363,108 @@ def test_read_cookies_refuses_wrong_browser_kind(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="chromium"):
         chromium.read_cookies(spoofed)
+
+
+# ---------------------------------------------------------------------------
+# ChromiumLockedError regression tests.
+#
+# On Windows in particular, `shutil.copy2` of the Cookies DB fails with
+# PermissionError [Errno 13] when the browser (or a background helper like
+# MicrosoftEdgeUpdate.exe / WebView2 host / Copilot) has the file locked.
+# The old error path bubbled that raw errno up to the GUI, giving the user
+# only "Couldn't read cookies for Microsoft Edge [Errno 13] Permission
+# denied." — not useful. These tests pin the improved behaviour.
+# ---------------------------------------------------------------------------
+
+
+def test_read_cookies_raises_locked_error_when_browser_is_running(tmp_path, monkeypatch):
+    """If ``is_running`` reports the browser is up, we must refuse the
+    read WITHOUT attempting the copy — and raise a
+    :class:`ChromiumLockedError` with a vendor-specific message.
+    """
+    from cookie_janitor.readers.chromium import ChromiumLockedError
+
+    _install_fake_chrome(tmp_path, monkeypatch)
+    # `discover_profiles` uses is_running=False to keep the profile
+    # scan-friendly; flip only the read-time check.
+    monkeypatch.setattr(chromium, "is_running", lambda _kind: False)
+    profiles = chromium.discover_profiles()
+    profile = next(iter(profiles))
+
+    # Now flip is_running for the read-time call.
+    monkeypatch.setattr(chromium, "is_running", lambda _kind: True)
+    with pytest.raises(ChromiumLockedError, match=profile.vendor):
+        chromium.read_cookies(profile)
+
+
+def test_read_cookies_maps_permission_error_from_copy_to_locked_error(
+    tmp_path, monkeypatch
+):
+    """If ``safe_copy`` itself raises ``PermissionError`` (the classic
+    Windows sharing-violation surface), we must re-raise as
+    ``ChromiumLockedError`` — not leak the raw errno-13 message.
+
+    The user-visible improvement: the GUI's error dialog now shows
+    'Microsoft Edge is still running' with actionable guidance, not
+    '[Errno 13] Permission denied'.
+    """
+    from cookie_janitor.readers.chromium import ChromiumLockedError
+    from cookie_janitor.safety import fs as safe_fs
+
+    _install_fake_chrome(tmp_path, monkeypatch)
+    monkeypatch.setattr(chromium, "is_running", lambda _kind: False)
+
+    # Build a valid DB so we get past discover -> is_running -> stat
+    # -> copy. The failure must be at the copy step specifically.
+    profiles = chromium.discover_profiles()
+    profile = next(iter(profiles))
+    _make_chrome_db(profile.cookies_db_path, [])
+
+    def _boom(src, dst):
+        raise PermissionError(13, "Permission denied", str(src))
+
+    monkeypatch.setattr(safe_fs, "safe_copy", _boom)
+
+    with pytest.raises(ChromiumLockedError) as excinfo:
+        chromium.read_cookies(profile)
+
+    # The chained cause preserves the underlying PermissionError so a
+    # log capture / bug report still has the raw errno for us.
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+    # The user-facing message must NOT be the bare errno line.
+    msg = str(excinfo.value)
+    assert profile.vendor in msg
+    assert "MicrosoftEdgeUpdate" in msg or "background" in msg
+
+
+def test_read_cookies_maps_oserror_from_wal_copy_to_locked_error(
+    tmp_path, monkeypatch
+):
+    """WAL/SHM sidecars being locked is a strong 'browser is writing'
+    signal. Must also map to ``ChromiumLockedError`` (not leak OSError).
+    """
+    from cookie_janitor.readers.chromium import ChromiumLockedError
+    from cookie_janitor.safety import fs as safe_fs
+
+    _install_fake_chrome(tmp_path, monkeypatch)
+    monkeypatch.setattr(chromium, "is_running", lambda _kind: False)
+    profiles = chromium.discover_profiles()
+    profile = next(iter(profiles))
+    _make_chrome_db(profile.cookies_db_path, [])
+    # Create a WAL sidecar so we exercise the WAL copy branch.
+    wal = profile.cookies_db_path.with_name(profile.cookies_db_path.name + "-wal")
+    wal.write_bytes(b"fake wal bytes")
+
+    # Fail only on the WAL copy, not on the main file copy. Track by
+    # dst filename so we don't need to distinguish arg shapes.
+    original_copy = safe_fs.safe_copy
+
+    def _flaky(src, dst):
+        if str(src).endswith("-wal"):
+            raise OSError(13, "sharing violation on WAL", str(src))
+        return original_copy(src, dst)
+
+    monkeypatch.setattr(safe_fs, "safe_copy", _flaky)
+
+    with pytest.raises(ChromiumLockedError, match=r"-wal|background"):
+        chromium.read_cookies(profile)

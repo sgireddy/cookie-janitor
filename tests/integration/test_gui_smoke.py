@@ -227,6 +227,52 @@ def test_format_read_error_renders_actionable_tcc_message(tmp_path):
     assert "Firefox" in detail  # explains that other browsers aren't affected
 
 
+def test_format_read_error_renders_actionable_locked_message(tmp_path):
+    """A ChromiumLockedError must produce a dialog that names the
+    actual remedy (fully quit the browser, check Task Manager) — not
+    just leak '[Errno 13] Permission denied'. This is the direct
+    user-visible fix for the 'couldn't read cookies for Microsoft
+    Edge [Errno 13] Permission denied' bug seen on Windows in v0.6.3.
+    """
+    from cookie_janitor.gui.window import _format_read_error
+    from cookie_janitor.model.cookie import BrowserKind, Profile
+    from cookie_janitor.readers.chromium import ChromiumLockedError
+
+    cookies_path = tmp_path / "Cookies"
+    cookies_path.write_bytes(b"")
+    profile = Profile(
+        browser=BrowserKind.CHROMIUM,
+        vendor="Microsoft Edge",
+        profile_name="Default",
+        cookies_db_path=cookies_path,
+        is_running=True,
+    )
+    exc = ChromiumLockedError(
+        "Microsoft Edge appears to be running. Please quit it."
+    )
+    title, body, detail = _format_read_error(profile, exc)
+
+    # The title must name the actual vendor, not the family.
+    # 'Microsoft Edge is still running' > 'Chromium is still running'.
+    assert "Microsoft Edge" in title
+    assert "running" in title
+    # The body must explain WHY reading failed (the browser is holding
+    # the file open) in language a non-technical user can act on. The
+    # bare Errno 13 is exactly what this replaces.
+    assert "Edge" in body
+    assert "Errno 13" not in body
+    assert "Permission denied" not in body
+    # The detail section must contain the actionable Windows-specific
+    # remediation steps, including the Task Manager hint that the
+    # generic 'close the browser' guidance doesn't cover.
+    assert "Task Manager" in detail
+    assert "MicrosoftEdgeUpdate.exe" in detail or "msedge.exe" in detail
+    # Non-negotiable safety copy: we do NOT try to bypass the lock.
+    # If someone ever adds a --force-read shortcut, that text needs
+    # rewording, and this test will scream.
+    assert "does NOT try to bypass" in detail or "safe path" in detail
+
+
 def test_format_read_error_falls_back_to_generic_message_for_other_errors(tmp_path):
     """Non-TCC errors must NOT get the Full Disk Access copy —
     otherwise a Chrome SQLite corruption would tell the user to grant

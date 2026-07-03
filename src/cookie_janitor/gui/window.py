@@ -111,9 +111,10 @@ def _format_read_error(profile: Profile, exc: BaseException) -> tuple[str, str, 
         guidance shown in the dialog's expandable area. ``detail`` is
         empty for ordinary errors.
     """
-    # Late import: keep ``readers.safari`` out of the GUI's import
-    # graph on Linux where Safari isn't relevant, and avoid a circular
-    # dependency at module load (gui.window <- readers <- ...).
+    # Late imports: keep OS-specific reader modules out of the GUI's
+    # import graph on platforms where they're irrelevant, and avoid a
+    # circular dependency at module load (gui.window <- readers <- ...).
+    from cookie_janitor.readers.chromium import ChromiumLockedError
     from cookie_janitor.readers.safari import (
         SafariPermissionDeniedError,
     )
@@ -127,6 +128,18 @@ def _format_read_error(profile: Profile, exc: BaseException) -> tuple[str, str, 
             f" not a Cookie Janitor bug — Safari's cookie store lives"
             f" inside Apple's protected container.",
             SafariPermissionDeniedError.GUIDANCE,
+        )
+    if isinstance(exc, ChromiumLockedError):
+        return (
+            f"{profile.vendor} is still running",
+            # Short, one-liner. The vendor name (Microsoft Edge, Google
+            # Chrome, Brave, …) is more meaningful to users than the
+            # generic "Chromium" family name.
+            f"Cookie Janitor couldn't read {profile.display} because "
+            f"{profile.vendor} — or one of its background helpers — "
+            f"is holding the cookie database open. Fully quit "
+            f"{profile.vendor} and click Refresh.",
+            ChromiumLockedError.GUIDANCE,
         )
     return (
         "Couldn't read cookies",

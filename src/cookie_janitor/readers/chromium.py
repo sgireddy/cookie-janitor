@@ -69,6 +69,51 @@ from cookie_janitor.safety.process import is_running
 log = logging.getLogger(__name__)
 
 
+class ChromiumLockedError(RuntimeError):
+    """Raised when we can't copy a Chromium cookie DB because the browser
+    (or one of its background helpers) is holding a lock on it.
+
+    On Windows in particular, Chromium-family browsers keep the
+    ``Cookies`` file open with restrictive share modes while running,
+    and even after a user "closes" the browser, background processes
+    (Edge Update, Chrome side-panel helper, PWAs pinned to the taskbar,
+    WebView2 hosts, Copilot) can keep the file locked. Trying to
+    ``shutil.copy2`` the file then produces ``PermissionError: [Errno
+    13] Permission denied``, which is not a useful message for the
+    end-user.
+
+    We raise this instead, with a human-readable message. The GUI's
+    :func:`cookie_janitor.gui.window._format_read_error` renders a
+    dedicated dialog with vendor-specific guidance.
+    """
+
+    #: Long-form guidance shown in the dialog's expandable "Details"
+    #: pane. Kept as a class attribute so tests can pin the wording.
+    GUIDANCE = (
+        "Windows lets a program lock a file so no other program can read "
+        "it, and Chromium-family browsers (Chrome, Edge, Brave, Vivaldi, "
+        "Opera, Arc) do this to their cookie database while running.\n"
+        "\n"
+        "To let Cookie Janitor read your cookies:\n"
+        "\n"
+        "  1. Fully quit the browser. Not just close the window — right-"
+        "click its tray icon and choose Quit, if there is one.\n"
+        "  2. Check Task Manager (Ctrl+Shift+Esc) for any leftover "
+        "processes named `msedge.exe`, `chrome.exe`, `brave.exe`, "
+        "`MicrosoftEdgeUpdate.exe`, etc. End them.\n"
+        "  3. If the browser is pinned to the taskbar or set as the "
+        "default PDF viewer, right-click the tray/taskbar icon and "
+        "close it there too.\n"
+        "  4. Come back to Cookie Janitor and click Refresh.\n"
+        "\n"
+        "Cookie Janitor deliberately does NOT try to bypass the file "
+        "lock. Reading a database while the browser is writing to it "
+        "would give you a torn view — some cookies partially updated, "
+        "others missing — and any subsequent delete could corrupt the "
+        "profile. Quitting the browser first is the only safe path."
+    )
+
+
 # Vendor -> per-platform path *relative to the user's home directory*
 # of the directory that CONTAINS the per-profile folders.
 #
@@ -264,18 +309,48 @@ _ENCRYPTED_VALUE_MARKER = b"<encrypted>"
 
 
 def read_cookies(profile: Profile) -> list[Cookie]:
-    """Read all cookies from a Chromium profile via a private copy."""
+    """Read all cookies from a Chromium profile via a private copy.
+
+    Raises:
+        ChromiumLockedError: If the browser (or a background helper)
+            has the cookie DB locked. Common on Windows even after the
+            user "closes" the browser — see the class docstring.
+        ValueError: If called with a non-Chromium profile.
+    """
     if profile.browser is not BrowserKind.CHROMIUM:
         raise ValueError(f"read_cookies(chromium) called with {profile.browser}")
 
     src = profile.cookies_db_path
     safe_fs.assert_regular_file_owned_by_us(src)
 
+    # Re-check at read time rather than trusting profile.is_running.
+    # Discovery may have run several minutes ago; the user may have
+    # opened the browser since. Also catches the Windows case where
+    # the process was already there but discovery ran too fast for
+    # psutil to see it.
+    if is_running(BrowserKind.CHROMIUM):
+        raise ChromiumLockedError(
+            f"{profile.vendor} appears to be running. Please quit it "
+            f"completely (including any background helpers) and try again."
+        )
+
     with tempfile.TemporaryDirectory(prefix="cj-cr-") as tmp:
         tmp_path = Path(tmp)
         copy_path = tmp_path / "Cookies"
         copy_path.touch(mode=0o600, exist_ok=False)
-        safe_fs.safe_copy(src, copy_path)
+        try:
+            safe_fs.safe_copy(src, copy_path)
+        except (PermissionError, OSError) as exc:
+            # errno 13 on POSIX and Windows both surface here as
+            # PermissionError; ERROR_SHARING_VIOLATION (32) on Windows
+            # comes through as OSError with winerror=32. Both mean
+            # "another process has this locked".
+            raise ChromiumLockedError(
+                f"Couldn't read {profile.vendor}'s cookie database: {exc}. "
+                f"This usually means the browser (or a background "
+                f"helper such as MicrosoftEdgeUpdate) still has the "
+                f"file open."
+            ) from exc
         # Copy WAL files too if they exist — they hold writes that
         # haven't yet been checkpointed into the main file.
         for ext in ("-wal", "-shm"):
@@ -283,7 +358,17 @@ def read_cookies(profile: Profile) -> list[Cookie]:
             if sidecar.is_file():
                 dest = copy_path.with_name(copy_path.name + ext)
                 dest.touch(mode=0o600, exist_ok=False)
-                safe_fs.safe_copy(sidecar, dest)
+                try:
+                    safe_fs.safe_copy(sidecar, dest)
+                except (PermissionError, OSError) as exc:
+                    # WAL/SHM being locked is a strong signal the
+                    # browser is actively writing. Same remediation
+                    # as the main-file lock case.
+                    raise ChromiumLockedError(
+                        f"Couldn't read {profile.vendor}'s "
+                        f"{sidecar.name}: {exc}. The browser is "
+                        f"probably still running in the background."
+                    ) from exc
         return list(_read_from_copy(copy_path))
 
 
