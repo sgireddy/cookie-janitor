@@ -146,10 +146,11 @@ uv run cookie-janitor-gui
 
 ### Building a macOS DMG locally
 
-Hosted GitHub Actions Intel runners (`macos-13`) are saturated and being
-retired, so the published release ships Apple Silicon only. To produce
-an Intel-compatible DMG yourself, build a **universal2** bundle on any
-Mac — the resulting `.app` runs on both Intel and Apple Silicon:
+The published release ships a **universal2** DMG built on GitHub's
+Apple Silicon runner (`macos-14`) that runs natively on both Intel
+and Apple Silicon — you should not need a local build for
+distribution. If you want to iterate on packaging changes without
+waiting for CI, the same universal2 bundle is one script away:
 
 ```bash
 ./scripts/build-mac-dmg.sh                # universal2 (default)

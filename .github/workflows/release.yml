@@ -53,17 +53,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macos-14 = Apple Silicon. We ship arm64-only for v0.2.0.
+          # macos-14 = Apple Silicon (arm64) hosted runner. From this
+          # single runner we build a **universal2** DMG that contains
+          # both arm64 AND x86_64 slices in one Mach-O fat binary — so
+          # Intel Macs (2017–2019 MacBook Pros, 2020 iMacs, etc.) and
+          # every Apple Silicon Mac run the same artefact.
           #
-          # The Intel (macos-13) hosted runner queue is currently saturated
-          # (jobs sit "queued" for 20+ minutes / hours) ahead of GitHub
-          # retiring macos-13 runners. Intel Macs from 2017–2019 are still
-          # in the wild though, so re-adding x86_64 — or switching to a
-          # universal2 build on macos-14 — is tracked as a TODO. Until
-          # then, Intel users can run from source via 'uv sync --extra gui'.
+          # Mechanism: Briefcase reads `pyproject.toml`'s
+          # `[tool.briefcase.app.cookie_janitor.macOS] universal_build`
+          # setting, which we don't set to True permanently (universal2
+          # doubles compile time on developer laptops). Instead we flip
+          # it via the BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD env var only
+          # in CI. This is the same knob scripts/build-mac-dmg.sh uses
+          # locally on the Intel Mac (host `mac`).
+          #
+          # We no longer need the macos-13 (Intel) runner — universal2
+          # from macos-14 covers Intel too, and macos-13 is being
+          # retired by GitHub in any case.
           - runner: macos-14
-            arch: arm64
+            arch: universal2
     runs-on: ${{ matrix.runner }}
+    env:
+      # Flip briefcase's macOS backend into universal2 mode. Overrides
+      # pyproject.toml at build time; no permanent file change needed.
+      BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD: "true"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,15 +140,32 @@ jobs:
   build-windows:
     name: Build Windows MSI (${{ matrix.arch }})
     # Run in parallel with build-macos. Briefcase Windows packaging
-    # requires WiX Toolset v3 (preinstalled on windows-latest runners)
-    # plus a native Python — we cannot cross-build Windows from macOS
-    # or Linux. The runner is the only feasible "Windows" we have.
+    # requires WiX Toolset v3 plus a native Python — we cannot
+    # cross-build Windows from macOS or Linux. The runner IS the
+    # target platform.
+    #
+    # Windows has no "universal binary" concept (unlike macOS Mach-O),
+    # so we build two MSIs — one per architecture — on two runners:
+    #
+    #   * windows-latest      -> x64  MSI  (WiX + native x64 Python)
+    #   * windows-11-arm      -> arm64 MSI (WiX + native arm64 Python)
+    #
+    # This matches how Chrome / Edge / VS Code / most Python apps
+    # distribute on Windows. Windows-on-ARM users get a native binary
+    # instead of the x64-through-emulation fallback.
+    #
+    # If the windows-11-arm runner label is unavailable in your
+    # GitHub plan (rare — public repos have had free access since
+    # 2025), remove the arm64 matrix cell and users will fall back
+    # to x64 emulation, which is transparent on Windows 11.
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-latest
             arch: x64
+          - runner: windows-11-arm
+            arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -156,16 +186,27 @@ jobs:
       - name: Install briefcase
         run: uv pip install "briefcase>=0.3.20,<0.4"
 
-      - name: Verify WiX toolset is on PATH
-        # WiX 3.x ships with windows-latest. We assert it's discoverable
-        # up front because Briefcase's own error message ("MSI tooling
-        # not found") is less helpful than "candle.exe missing".
+      - name: Ensure WiX toolset is available
+        # WiX 3.x ships preinstalled on windows-latest but NOT on
+        # windows-11-arm. On arm64 runners we install it via
+        # Chocolatey — WiX itself is a set of x86 binaries that run
+        # fine on arm64 Windows via the built-in x86 emulator (WiX
+        # generates architecture-neutral MSI databases; the payload
+        # arch is set by briefcase from the runner's native Python).
         shell: pwsh
         run: |
           $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
           if (-not $candle) {
-            Write-Error "WiX (candle.exe) not on PATH. Install via 'choco install wixtoolset' or update the runner image."
-            exit 1
+            Write-Host "candle.exe not on PATH; installing WiX 3.x via Chocolatey..."
+            choco install wixtoolset --version 3.14.1 --no-progress -y
+            # Chocolatey drops WiX into "C:\Program Files (x86)\WiX Toolset v3.14\bin".
+            $wixBin = Join-Path ${env:ProgramFiles(x86)} 'WiX Toolset v3.14\bin'
+            if (-not (Test-Path (Join-Path $wixBin 'candle.exe'))) {
+              Write-Error "WiX install did not produce candle.exe at $wixBin"
+              exit 1
+            }
+            "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            $env:PATH = "$wixBin;$env:PATH"
           }
           candle.exe -? | Select-Object -First 1
 
@@ -276,8 +317,15 @@ jobs:
 
             Pick your platform:
 
-            * **macOS (Apple Silicon)** — `Cookie-Janitor-arm64.dmg`
+            * **macOS 11+ (Intel + Apple Silicon, universal)** —
+              `Cookie-Janitor-universal2.dmg`
+              Single DMG runs natively on both architectures.
             * **Windows 10 / 11 (x64)** — `Cookie-Janitor-x64.msi`
+            * **Windows 11 (arm64)** — `Cookie-Janitor-arm64.msi`
+              Native arm64 build for Surface Pro X / Copilot+ PCs.
+              (x64 users on ARM Windows can still run the x64 MSI
+              via the built-in emulator, but the arm64 MSI is
+              faster and uses less battery.)
 
             ### First-launch warnings
 
@@ -304,11 +352,11 @@ jobs:
 
             ```sh
             # macOS / Linux
-            shasum -a 256 -c Cookie-Janitor-arm64.dmg.sha256
+            shasum -a 256 -c Cookie-Janitor-universal2.dmg.sha256
             ```
 
             ```powershell
-            # Windows
+            # Windows (x64 example — swap in arm64 as needed)
             $expected = (Get-Content Cookie-Janitor-x64.msi.sha256).Split()[0]
             $actual   = (Get-FileHash Cookie-Janitor-x64.msi).Hash.ToLower()
             if ($expected -eq $actual) { "OK" } else { "MISMATCH" }
