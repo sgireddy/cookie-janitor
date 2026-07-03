@@ -68,7 +68,7 @@ function Write-Warn($msg) { Write-Host "    $msg" -ForegroundColor Yellow }
 # --- 1. Sanity checks ------------------------------------------------------
 
 Write-Step "Sanity check: tools on PATH"
-foreach ($tool in 'uv', 'candle.exe', 'light.exe') {
+foreach ($tool in 'candle.exe', 'light.exe', 'git') {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "Required tool '$tool' not found on PATH. See script docstring for install hints."
     }
@@ -139,8 +139,11 @@ try {
     # --- 5. Confirm git state ---------------------------------------------
 
     Write-Step "Checking git state"
-    $branch = (git rev-parse --abbrev-ref HEAD).Trim()
-    $status = (git status --porcelain).Trim()
+    $branch = (git rev-parse --abbrev-ref HEAD 2>$null | Out-String).Trim()
+    if (-not $branch) {
+        throw "Unable to determine git branch. Ensure git is installed and this is a git repository."
+    }
+    $status = (git status --porcelain 2>$null | Out-String).Trim()
     if ($status) {
         Write-Warn "Working tree is dirty:"
         git status --short
@@ -152,8 +155,12 @@ try {
     # --- 6. Make sure the tag exists -------------------------------------
 
     $tagExists = $false
-    git rev-parse "$Tag" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { $tagExists = $true }
+    try {
+        & git show-ref --verify --quiet "refs/tags/$Tag" 2>$null
+        if ($LASTEXITCODE -eq 0) { $tagExists = $true }
+    } catch {
+        $tagExists = $false
+    }
     if (-not $tagExists) {
         Write-Step "Tag $Tag does not exist locally; creating it"
         git tag -a "$Tag" -m "Cookie Janitor $Tag"
