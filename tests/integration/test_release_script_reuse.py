@@ -5,8 +5,16 @@ to reuse an existing build. That was version-blind: a stale v0.3.0 DMG
 sitting in ``dist/`` would be silently reused when releasing v0.4.0.
 
 These tests stub the macOS-only build script and skip the GitHub bits
-(by exiting just after step 3), so they run on any OS as long as bash
-is available. We never invoke briefcase or gh.
+(by exiting just after step 3). We only need ``bash`` — briefcase and
+gh are never invoked.
+
+Portability caveat: the harness is bash-4+. It runs cleanly on macOS
+(zsh users get bash-3.2 by default so we shell out to /bin/bash) and
+on Linux, but Git-Bash on Windows GitHub runners exhibits sporadic
+UTF-16 stderr and shopt/array-glob quirks that make the tests
+flaky-to-failing even though the release script itself is macOS-only
+and Windows-users will never invoke it. We skip on Windows rather
+than let irrelevant CI failures mask real regressions.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -22,9 +31,19 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release-mac.sh"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash is required to test release-mac.sh"
-)
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("bash") is None, reason="bash is required to test release-mac.sh"
+    ),
+    pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "release-mac.sh is macOS-only; Git-Bash on Windows CI has UTF-16 stderr "
+            "and array-glob quirks that make this bash harness unreliable even though "
+            "no Windows user will ever run the tested script"
+        ),
+    ),
+]
 
 
 def _read_version() -> str:
