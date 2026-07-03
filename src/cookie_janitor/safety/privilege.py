@@ -47,7 +47,28 @@ def assert_not_privileged() -> None:
 
 
 def _windows_is_elevated() -> bool:  # pragma: no cover - exercised only on Windows
-    """Return True if the current process token is elevated."""
+    """Return ``True`` if the current process token is elevated.
+
+    Implementation notes
+    --------------------
+    We call ``OpenProcessToken`` + ``GetTokenInformation(TokenElevation)``
+    via :mod:`ctypes`. **Setting ``argtypes`` and ``restype`` on every
+    Win32 function used here is not optional on 64-bit Windows.**
+    Without them ctypes assumes ``c_int`` (32-bit) for pointer-shaped
+    return values, and the ``HANDLE`` returned by ``GetCurrentProcess``
+    gets silently truncated to 32 bits before being passed on.
+    ``OpenProcessToken`` then fails with ``ERROR_INVALID_HANDLE`` (6),
+    which is what produced the:
+
+        "Could not determine process elevation state; refusing to
+         continue."
+
+    error users saw on v0.6.2 the first time it launched on Windows.
+
+    If the check itself fails, we still fail **closed** (raise), but we
+    now include the concrete Windows error code in the message so the
+    next diagnosis doesn't need a Python debugger.
+    """
     import ctypes
     from ctypes import wintypes
 
@@ -57,13 +78,39 @@ def _windows_is_elevated() -> bool:  # pragma: no cover - exercised only on Wind
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
 
+    # ---- explicit prototypes (see docstring) --------------------------
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,                     # ProcessHandle
+        wintypes.DWORD,                      # DesiredAccess
+        ctypes.POINTER(wintypes.HANDLE),     # TokenHandle (out)
+    ]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,                     # TokenHandle
+        ctypes.c_int,                        # TokenInformationClass
+        ctypes.c_void_p,                     # TokenInformation (out)
+        wintypes.DWORD,                      # TokenInformationLength
+        ctypes.POINTER(wintypes.DWORD),      # ReturnLength (out)
+    ]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    # -------------------------------------------------------------------
+
     h_token = wintypes.HANDLE()
     if not advapi32.OpenProcessToken(
         kernel32.GetCurrentProcess(), TOKEN_QUERY, ctypes.byref(h_token)
     ):
-        # Fail closed: if we cannot determine elevation, refuse.
+        err = ctypes.get_last_error()  # type: ignore[attr-defined]
         raise PrivilegedExecutionError(
-            "Could not determine process elevation state; refusing to continue."
+            f"Could not determine process elevation state "
+            f"(OpenProcessToken failed, Windows error {err}); "
+            f"refusing to continue."
         )
     try:
         elevation = wintypes.DWORD(0)
@@ -75,7 +122,12 @@ def _windows_is_elevated() -> bool:  # pragma: no cover - exercised only on Wind
             ctypes.sizeof(elevation),
             ctypes.byref(size),
         ):
-            raise PrivilegedExecutionError("Could not query token elevation; refusing to continue.")
+            err = ctypes.get_last_error()  # type: ignore[attr-defined]
+            raise PrivilegedExecutionError(
+                f"Could not query token elevation "
+                f"(GetTokenInformation failed, Windows error {err}); "
+                f"refusing to continue."
+            )
         return bool(elevation.value)
     finally:
         kernel32.CloseHandle(h_token)
