@@ -162,7 +162,160 @@ Output lands in `dist/Cookie-Janitor-<arch>.dmg` with a sibling
 `.sha256`. First launch on an unsigned build needs a right-click → Open
 to get past Gatekeeper.
 
-### Cutting a release (one command)
+### Building a Windows MSI locally
+
+Windows MSIs are built **on Windows**. Briefcase wraps a native Python
+interpreter and shells out to WiX (`candle.exe` / `light.exe`), so
+cross-building from macOS or Linux is not possible. Options for a
+maintainer without a dedicated Windows box: a Windows VM, a spare
+laptop, a Windows EC2 spot instance (about $0.05/hour), or just push
+a tag and let CI build it (see [_Cutting a release_](#cutting-a-release-via-ci-both-platforms) below).
+
+#### One-time setup on the Windows machine
+
+Run in an **elevated PowerShell** (needed for the `choco install`
+step; nothing else in this workflow requires admin):
+
+```powershell
+# 1. Install Chocolatey if you don't already have it.
+Set-ExecutionPolicy Bypass -Scope Process -Force
+[System.Net.ServicePointManager]::SecurityProtocol = 3072
+iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+# 2. Install the build prereqs.
+choco install -y git uv wixtoolset gh
+```
+
+Close and reopen PowerShell so the new `PATH` takes effect, then (in a
+**non-elevated** shell — we deliberately don't want admin for the
+build itself):
+
+```powershell
+gh auth login                                    # once per machine
+git clone https://github.com/sgireddy/cookie-janitor.git
+cd cookie-janitor
+```
+
+Sanity-check that WiX is discoverable — this is the single most common
+first-build failure:
+
+```powershell
+candle.exe -?                                    # should print version
+light.exe  -?                                    # should print version
+```
+
+If either command isn't found, the chocolatey package didn't extend
+`PATH` for the current session. Add it manually:
+
+```powershell
+$env:PATH += ";C:\Program Files (x86)\WiX Toolset v3.14\bin"
+```
+
+#### Building the MSI
+
+```powershell
+# Fastest path: build only, no GitHub interaction.
+pwsh scripts\release-windows.ps1 -SkipRelease
+
+# Force a fresh build even if dist\*.msi already exists.
+pwsh scripts\release-windows.ps1 -SkipRelease -Rebuild
+```
+
+Output:
+
+* `dist\Cookie-Janitor-x64.msi` — the installer.
+* `dist\Cookie-Janitor-x64.msi.sha256` — matching hash in the same
+  `<hash>  <filename>` format the macOS pipeline uses, so the same
+  verify commands work on both platforms.
+
+The MSI is a **per-user** installer (`system_installer = false` in
+`pyproject.toml`): it installs to `%LOCALAPPDATA%\Programs\Cookie
+Janitor\` and never prompts for UAC. Cookie Janitor only reads and
+writes files under `%USERPROFILE%` at runtime, so forcing elevation
+would be a lie.
+
+#### Smoke-testing a fresh MSI
+
+Do this in a scratch Windows account or VM whenever possible — the
+whole point is to catch anything the build machine's environment might
+have papered over.
+
+1. Double-click the MSI. Installer runs to completion with **no UAC
+   prompt**.
+2. Launch **Cookie Janitor** from the Start Menu. Expect a one-time
+   SmartScreen dialog ("Windows protected your PC") because the build
+   is unsigned. Click **More info → Run anyway**.
+3. The main window opens. The profile dropdown should list every
+   Chrome, Edge, and Firefox profile installed on the machine.
+4. Pick one obvious tracker cookie, click **Delete Selected**, confirm
+   the dialog. Cookie Janitor writes a backup to
+   `%LOCALAPPDATA%\cookie-janitor\backups\<timestamp>\` before
+   touching anything.
+5. Fully quit the affected browser and reopen it. The deleted cookie
+   is gone; other cookies (Gmail, GitHub, etc.) still work.
+6. If anything looks wrong: `cookie-janitor restore <backup-path>`
+   reverts the file atomically. The backup pipeline is verified with
+   SHA-256, so a corrupted backup won't overwrite the current file.
+
+#### Troubleshooting
+
+* **`briefcase: command not found`** — you're in a shell that opened
+  before `uv` was installed. Re-open PowerShell.
+* **`[WinError 32]` during briefcase build** — corporate antivirus is
+  locking DLLs as briefcase writes them. Whitelist the repo directory
+  in Defender / your endpoint protection tool and retry.
+* **`candle.exe not found` mid-build even though it was on PATH
+  earlier** — the `uv run` subshell inherits the parent PATH; if you
+  set it via `$env:PATH += …` in the current session and then opened
+  a new terminal tab, the new tab won't have it. Set the PATH in
+  System Properties → Environment Variables for a persistent fix.
+* **Briefcase downloads a huge template zip on every run** — that's
+  the beeware app template; it's cached under
+  `%LOCALAPPDATA%\BeeWare\`. Deleting that directory forces a
+  fresh download, which is occasionally the fix if the template
+  cache got corrupted mid-download.
+* **MSI installs but the app fails to launch with `api-ms-win-crt-*.dll`
+  missing** — the machine is missing the Visual C++ Redistributable
+  that the bundled Python needs. Install
+  [VC++ Redist 2015-2022](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
+  Old Windows 10 installs (< 1809) are the usual suspects.
+
+#### Uninstalling
+
+Settings → Apps → Installed apps → **Cookie Janitor** → Uninstall.
+The uninstaller removes `%LOCALAPPDATA%\Programs\Cookie Janitor\`
+but deliberately leaves backups under
+`%LOCALAPPDATA%\cookie-janitor\backups\` alone, so a mis-click doesn't
+wipe your safety net. Delete that directory manually if you want a
+clean slate.
+
+### Cutting a release via CI (both platforms)
+
+This is the recommended path once a version is ready — one push
+produces the DMG **and** the MSI in about 10 minutes with no local
+build machines involved.
+
+```bash
+# Bump the version in pyproject.toml, commit, then:
+git tag vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
+```
+
+The `Release` workflow (`.github/workflows/release.yml`) fans out into
+`build-macos` (Apple Silicon runner) and `build-windows`
+(`windows-latest` runner) in parallel, then a `publish` job attaches
+all four artefacts (`.dmg`, `.dmg.sha256`, `.msi`, `.msi.sha256`) to a
+**draft** GitHub Release. Smoke-test the binaries, then click
+_Publish_ in the GitHub UI.
+
+If a single runner has a bad day (Windows runners in particular have
+had outages), `fail-fast: false` means the other artefact still
+builds. Delete the resulting incomplete draft release, re-trigger via
+_Actions → Release → Run workflow_, and both artefacts land on the
+same draft.
+
+### Cutting a macOS release locally
 
 `scripts/release-mac.sh` does the whole release flow end-to-end: it
 preflight-checks the environment, runs `build-mac-dmg.sh` if no DMG
@@ -186,47 +339,37 @@ Prereqs: `xcode-select --install`, `uv`, and
 [`gh`](https://cli.github.com/) authenticated as the release owner
 (`gh auth login`).
 
-### Building a Windows MSI
+### Cutting a Windows release locally
 
-Windows MSIs are built on Windows. You cannot cross-build from macOS
-or Linux — Briefcase wraps a native Python interpreter and runs WiX
-(`candle.exe` / `light.exe`) to produce the installer. Two routes:
-
-**Route A — via GitHub Actions (recommended).**
-The `Release` workflow builds the MSI on a `windows-latest` runner in
-parallel with the DMG. Push a `vX.Y.Z` tag and both artefacts appear
-on the resulting draft release. Nothing to do per-release.
-
-**Route B — locally on a Windows box.** Prereqs:
-
-* Windows 10 / 11.
-* Python 3.11 (installed by `uv` on demand if missing).
-* [`uv`](https://github.com/astral-sh/uv).
-* WiX Toolset v3.x on `PATH`:
-  `choco install wixtoolset` _or_
-  download from <https://github.com/wixtoolset/wix3/releases>.
-* [`gh`](https://cli.github.com/) authenticated, but only if you want
-  the script to also create a draft GitHub Release.
-
-Then:
+`scripts/release-windows.ps1` is the direct analogue of
+`release-mac.sh`. It runs the same preflight → build → verify →
+draft-release pipeline, but produces the MSI. Same idempotency —
+re-running just re-uploads the artefact to the existing draft.
 
 ```powershell
-# Just build the MSI; don't touch GitHub.
-pwsh scripts\release-windows.ps1 -SkipRelease
-
-# Build + create a draft GitHub Release with MSI + .sha256 attached.
-pwsh scripts\release-windows.ps1
-
-# Force a fresh build even if dist\*.msi exists.
-pwsh scripts\release-windows.ps1 -Rebuild
+pwsh scripts\release-windows.ps1                # build + draft release
+pwsh scripts\release-windows.ps1 -Rebuild       # force a fresh build first
+pwsh scripts\release-windows.ps1 -Publish       # publish immediately (skip draft)
+pwsh scripts\release-windows.ps1 -SkipRelease   # build only, don't touch GitHub
+pwsh scripts\release-windows.ps1 -Tag v0.6.1    # explicit tag override
 ```
 
-Output lands in `dist\Cookie-Janitor-x64.msi` with a sibling `.sha256`
-in the same `<hash>  <filename>` format the macOS pipeline uses. The
-MSI is a **per-user** installer (no UAC prompt) that installs to
-`%LOCALAPPDATA%\Programs\Cookie Janitor\`. First launch will show a
-SmartScreen warning ("Windows protected your PC") because the build
-is unsigned; click **More info → Run anyway**.
+To cut `v0.6.1` from a Windows machine: bump `version = "0.6.1"` in
+`pyproject.toml`, commit, push, then run
+`pwsh scripts\release-windows.ps1`. If the tag doesn't exist yet the
+script creates it and pushes it to `origin` before creating the
+release.
+
+Prereqs: PowerShell 5.1+ (built into Windows) or PowerShell 7, `uv`,
+WiX Toolset v3.x with `candle.exe` on `PATH`, and `gh` authenticated
+as the release owner. See [_Building a Windows MSI locally_](#building-a-windows-msi-locally) above for the one-time
+setup commands.
+
+> **Choosing a route.** For a normal release, use the CI path — it's
+> the least error-prone and produces both binaries. Use the local
+> scripts when you're iterating on packaging, when the CI runners are
+> unavailable, or when you want to sign an artefact with a certificate
+> that isn't in repo secrets yet.
 
 ## Contributing
 
