@@ -79,7 +79,7 @@ Allow-list matches always win.
 |---|---|---|---|
 | **Firefox-family** (Firefox, LibreWolf, Waterfox, Floorp, Zen) | ✅ | ✅ | Plain SQLite at `cookies.sqlite`; cookie values are unencrypted. |
 | **Chromium-family** (Chrome, Edge, Brave, Vivaldi, Opera, Arc, Chromium) | ✅ | ✅ | Cookie values are encrypted (Keychain / DPAPI / libsecret). We don't decrypt them — the classifier only needs names, domains, expiries, and flags, all of which are stored in plaintext. The delete path doesn't need to decrypt either. |
-| **Safari** (macOS only) | ✅ | ⏳ | Reads `Cookies.binarycookies` directly. Deletion is intentionally **not** shipped yet (see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the reasoning); the GUI greys out the delete button on Safari profiles and shows a banner. Use Safari's own *Settings → Privacy → Manage Website Data* to delete in the meantime. |
+| **Safari** (macOS only) | ✅ | ✅ | Reads and rewrites `Cookies.binarycookies` directly. Before writing we (a) refuse if Safari is running (it rewrites the whole file on quit and would clobber our changes), (b) refuse if *iCloud → Safari* is enabled — sync will resurrect deleted cookies within minutes — unless you set `COOKIE_JANITOR_ALLOW_SAFARI_SYNC=1` to acknowledge, and (c) take a timestamped backup next to the original. Requires **Full Disk Access** on the running app (macOS TCC); the GUI shows an actionable dialog if the OS blocks the read/write. |
 
 The reader and writer dispatchers are at
 [`src/cookie_janitor/readers/__init__.py`](src/cookie_janitor/readers/__init__.py)
