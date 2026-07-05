@@ -78,12 +78,12 @@ jobs:
       # pyproject.toml at build time; no permanent file change needed.
       BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0  # briefcase reads tags for version metadata
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
         with:
           enable-cache: true
 
@@ -128,7 +128,7 @@ jobs:
             > "$(basename '${{ steps.locate.outputs.dmg }}').sha256"
 
       - name: Upload build artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: macos-${{ matrix.arch }}
           path: |
@@ -168,12 +168,12 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
         with:
           enable-cache: true
 
@@ -248,7 +248,7 @@ jobs:
           "$hash  $name" | Out-File -FilePath "$msiPath.sha256" -Encoding ASCII -NoNewline
 
       - name: Upload build artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: windows-${{ matrix.arch }}
           path: |
@@ -265,17 +265,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Download all macOS artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artefacts
           pattern: macos-*
           merge-multiple: true
 
       - name: Download all Windows artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artefacts
           pattern: windows-*
@@ -300,7 +300,7 @@ jobs:
           fi
 
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           name: Cookie Janitor ${{ steps.tag.outputs.name }}

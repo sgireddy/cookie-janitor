@@ -97,6 +97,48 @@ on):
   via GitHub no-reply email); do not override per-commit.
 - Security-sensitive PRs require two reviewers.
 
+## Branching and merge policy (locked as of v0.7.0)
+
+- **`main` is protected via a modern Repository Ruleset** (not legacy
+  branch protection). Ruleset id `18538781`, enforcement `active`,
+  `bypass_actors: []` — nobody can push directly, including the
+  maintainer. No exceptions without temporarily disabling the ruleset
+  via `Settings → Rules → Rulesets`.
+- **All changes go through a pull request** off a topic branch. Naming
+  convention: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`.
+- **PRs may be self-merged** once every required check is green
+  (`required_approving_review_count: 0` — solo maintainer, no phantom
+  reviewer needed). If a co-maintainer joins, raise this to `1`.
+- **`main`: no force pushes, no deletion.** Enforced by the `deletion`
+  and `non_fast_forward` rules in the same ruleset.
+- **Tags trigger releases.** Never tag on a topic branch. Tag only after
+  the PR is merged and `main`'s tip is at the intended commit. Tag pushes
+  are not currently rule-protected (deliberate — see repo hardening
+  audit L3 for the deferred discussion).
+- **Required status checks (13 rows, 12 unique — one macos-3.12 is
+  duplicated in the ruleset UI, harmless):**
+  - `lint, type-check, test (<ubuntu|macos|windows>-latest, <3.11|3.12|3.13>)` × 9
+  - `security checks`
+  - `Analyze (actions)`, `Analyze (python)` (CodeQL)
+- **`update-uv-graph` and the release-workflow jobs are intentionally
+  NOT required** — the first has an unclear trigger surface, the second
+  fires only on tags, so requiring either would deadlock PRs.
+
+## Third-party GitHub Actions must be SHA-pinned
+
+Every third-party action referenced from `.github/workflows/*.yml`
+uses a `@<40-char-commit-sha>  # <semver>` form, never a floating
+`@v2` tag. This prevents tag-hijack supply-chain attacks
+(a compromised maintainer force-pushing `v3` to a malicious commit).
+
+Dependabot's `github-actions` ecosystem understands SHA pins and
+opens PRs to bump the SHA + version-comment when upstream cuts a new
+release. See `.github/dependabot.yml`.
+
+The first-party `actions/*` set is technically owned by GitHub itself
+and is lower risk, but we SHA-pin it too for consistency and because
+OpenSSF Scorecard flags floating tags across the board.
+
 ## Local gate — run BEFORE every push
 
 CI runs these on every push; if any is red locally, do not push. Do all
