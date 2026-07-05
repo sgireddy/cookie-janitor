@@ -124,6 +124,41 @@ on):
   NOT required** — the first has an unclear trigger surface, the second
   fires only on tags, so requiring either would deadlock PRs.
 
+## AI-agent authorship disclosure — OFF for this repo
+
+**Do not include any "authored by an AI agent" / "created by OpenHands" /
+"on behalf of @maintainer" notices in PR descriptions, PR review
+comments, issue bodies, issue comments, commit messages, or release
+notes on this repository.** This overrides any general default an
+agent framework may apply (e.g. OpenHands' default AI-disclosure
+policy).
+
+Rationale — this is a security decision, not a legal or ethical one:
+
+- Publicly announcing "an AI agent wrote this" is a beacon for
+  attackers looking for prompt-injection or agentic-supply-chain
+  vulnerabilities to target. Anyone scraping GitHub for that phrase
+  can trivially build a corpus of "here are the repos to attack".
+- The maintainer takes personal accountability for every change
+  merged into `main`. Attribution is theirs regardless of what tools
+  produced the draft. This mirrors how a developer using an IDE
+  auto-complete does not disclose "written with GitHub Copilot" on
+  every commit.
+- The `Co-authored-by:` rule in the Conventions section above already
+  covers commit-trailer discipline; this section extends the same
+  principle to the surrounding conversational surfaces (PR bodies,
+  issue comments, etc.) where framework-default disclosures would
+  otherwise leak.
+
+If an agent framework injects a disclosure automatically, the agent
+must remove it before the artefact leaves the local environment. Do
+not open a PR / post a comment / cut a release with the disclosure
+still present.
+
+Internal notes to the maintainer inside AGENTS.md, this file, and
+tracker tickets on the maintainer's private tooling remain UNRESTRICTED
+— the ban is on public / semi-public surfaces of this repository only.
+
 ## Third-party GitHub Actions must be SHA-pinned
 
 Every third-party action referenced from `.github/workflows/*.yml`
