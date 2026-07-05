@@ -1,0 +1,78 @@
+# Dependabot configuration for cookie-janitor.
+#
+# We want two things from Dependabot:
+#
+#   1. Keep third-party GitHub Actions pinned SHAs current. The workflows
+#      pin every third-party action to a specific commit SHA (see
+#      chore/repo-hardening rationale). Dependabot's github-actions
+#      ecosystem understands SHA pins and will open PRs with the new SHA
+#      + updated version comment when upstream cuts a release.
+#
+#   2. Keep Python dependencies patched for security. We use uv, but
+#      Dependabot's pip ecosystem reads pyproject.toml, which is our
+#      source of truth for direct deps (uv.lock is regenerated).
+#
+# Cadence is weekly (Monday) — daily churn wastes CI minutes for
+# marginal security wins, and monthly is too slow if a real CVE lands.
+# Security updates fire immediately regardless of the weekly cadence.
+#
+# Labels below are applied only if they exist in the repo. Dependabot
+# silently drops unknown labels; nothing breaks if they're missing.
+
+version: 2
+updates:
+  # -----------------------------------------------------------------
+  # GitHub Actions — SHA pins in .github/workflows/*.yml
+  # -----------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # Group first-party GitHub actions together — they release in lockstep
+    # and reviewing one PR per new SDK is cheaper than five.
+    groups:
+      github-first-party:
+        patterns:
+          - "actions/*"
+          - "github/*"
+
+  # -----------------------------------------------------------------
+  # Python (uv-managed via pyproject.toml)
+  # -----------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # Group patch + minor bumps together to keep the PR queue short.
+    # Major bumps get their own PR — they may include breaking changes
+    # that deserve a focused review pass.
+    groups:
+      python-patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - "patch"
+          - "minor"
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

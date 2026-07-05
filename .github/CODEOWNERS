@@ -1,0 +1,30 @@
+# Code owners for cookie-janitor.
+#
+# Every file in the repo has @sgireddy as owner by default. Since we
+# are a single-maintainer project today, the value of this file is
+# not who-reviews-what (there's only one reviewer) — it's:
+#
+#   * Setting up for future multi-maintainer growth: when a second
+#     person joins, we add them here with a scoped pattern instead of
+#     rewriting from scratch.
+#
+#   * Enabling the ruleset's optional `require_code_owner_review`
+#     toggle later without a follow-up file scaffold.
+#
+#   * Documenting responsibility clearly for external contributors:
+#     PRs get auto-requested from the owner instead of nobody.
+#
+# Syntax reference:
+#   https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: everything belongs to the maintainer.
+*                                @sgireddy
+
+# Security-sensitive surfaces get called out explicitly so a future
+# addition of a scoped reviewer (e.g. a security-focused contributor)
+# is a one-line change here instead of a hunt through the tree.
+/src/cookie_janitor/safety/      @sgireddy
+/src/cookie_janitor/writers/     @sgireddy
+/docs/THREAT_MODEL.md            @sgireddy
+/SECURITY.md                     @sgireddy
+/.github/                        @sgireddy

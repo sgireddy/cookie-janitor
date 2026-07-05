@@ -97,6 +97,129 @@ on):
   via GitHub no-reply email); do not override per-commit.
 - Security-sensitive PRs require two reviewers.
 
+## Branching and merge policy (locked as of v0.7.0)
+
+- **`main` is protected via a modern Repository Ruleset** (not legacy
+  branch protection). Ruleset id `18538781`, enforcement `active`,
+  `bypass_actors: []` — nobody can push directly, including the
+  maintainer. No exceptions without temporarily disabling the ruleset
+  via `Settings → Rules → Rulesets`.
+- **All changes go through a pull request** off a topic branch. Naming
+  convention: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`.
+- **PRs may be self-merged** once every required check is green
+  (`required_approving_review_count: 0` — solo maintainer, no phantom
+  reviewer needed). If a co-maintainer joins, raise this to `1`.
+- **`main`: no force pushes, no deletion.** Enforced by the `deletion`
+  and `non_fast_forward` rules in the same ruleset.
+- **Tags trigger releases.** Never tag on a topic branch. Tag only after
+  the PR is merged and `main`'s tip is at the intended commit. Tag pushes
+  are not currently rule-protected (deliberate — see repo hardening
+  audit L3 for the deferred discussion).
+- **Required status checks (13 rows, 12 unique — one macos-3.12 is
+  duplicated in the ruleset UI, harmless):**
+  - `lint, type-check, test (<ubuntu|macos|windows>-latest, <3.11|3.12|3.13>)` × 9
+  - `security checks`
+  - `Analyze (actions)`, `Analyze (python)` (CodeQL)
+- **`update-uv-graph` and the release-workflow jobs are intentionally
+  NOT required** — the first has an unclear trigger surface, the second
+  fires only on tags, so requiring either would deadlock PRs.
+
+## AI-agent authorship disclosure — OFF for this repo
+
+**Do not include any "authored by an AI agent" / "created by OpenHands" /
+"on behalf of @maintainer" notices in PR descriptions, PR review
+comments, issue bodies, issue comments, commit messages, or release
+notes on this repository.** This overrides any general default an
+agent framework may apply (e.g. OpenHands' default AI-disclosure
+policy).
+
+Rationale — this is a security decision, not a legal or ethical one:
+
+- Publicly announcing "an AI agent wrote this" is a beacon for
+  attackers looking for prompt-injection or agentic-supply-chain
+  vulnerabilities to target. Anyone scraping GitHub for that phrase
+  can trivially build a corpus of "here are the repos to attack".
+- The maintainer takes personal accountability for every change
+  merged into `main`. Attribution is theirs regardless of what tools
+  produced the draft. This mirrors how a developer using an IDE
+  auto-complete does not disclose "written with GitHub Copilot" on
+  every commit.
+- The `Co-authored-by:` rule in the Conventions section above already
+  covers commit-trailer discipline; this section extends the same
+  principle to the surrounding conversational surfaces (PR bodies,
+  issue comments, etc.) where framework-default disclosures would
+  otherwise leak.
+
+If an agent framework injects a disclosure automatically, the agent
+must remove it before the artefact leaves the local environment. Do
+not open a PR / post a comment / cut a release with the disclosure
+still present.
+
+Internal notes to the maintainer inside AGENTS.md, this file, and
+tracker tickets on the maintainer's private tooling remain UNRESTRICTED
+— the ban is on public / semi-public surfaces of this repository only.
+
+## Signed commits and tags
+
+Every commit and tag that lands on `main` should be cryptographically
+signed. See `docs/SIGNING.md` for the SSH-based setup the maintainer
+uses.
+
+**How agents interact with this policy:**
+
+- Agents do NOT have the maintainer's signing key and MUST NOT
+  attempt to sign commits under the maintainer's identity.
+- Agents produce topic-branch commits (unsigned is acceptable there)
+  and open PRs. When the maintainer merges via **squash merge**, the
+  merge commit is authored and signed by the maintainer, and only
+  that signed commit lands on `main`.
+- Do NOT use `git commit -S` in agent-executed commands; that would
+  fail (no key) and pollute the log with confusing errors.
+- Do NOT push under the maintainer's identity with a copied private
+  key. That inverts the property signed commits exist to provide.
+
+**Ruleset enforcement of signed commits:** deferred. Enabling
+`Require signed commits` on the ruleset today would break agent-based
+PR workflows (agent commits on topic branches are unsigned). Once
+the maintainer's setup is stable AND the squash-merge policy is
+locked in, the ruleset can require signatures. Tracked as follow-up.
+
+## Tag ruleset (deferred to its own follow-up)
+
+Currently `main` is protected but tag pushes to `refs/tags/v*` are
+not. This means anyone with `contents: write` (including agent
+tokens) can push a `v*` tag and trigger a release build.
+
+The intended fix is a second ruleset targeting `refs/tags/v*` with:
+
+- `deletion` blocked (no re-tagging a released version)
+- `non_fast_forward` blocked
+- `creation` restricted to the maintainer (bypass actor list)
+
+Applying this requires `Administration: write` scope, which normal
+agent tokens do not have. See `docs/RULESETS.md` for the JSON
+payload the maintainer can PUT via `gh api`, or the click-path if
+they prefer the UI.
+
+Agents SHOULD NOT push `v*` tags in normal operation. If a tag needs
+to be cut, do so on the maintainer's local machine or ask them to
+push the tag manually.
+
+## Third-party GitHub Actions must be SHA-pinned
+
+Every third-party action referenced from `.github/workflows/*.yml`
+uses a `@<40-char-commit-sha>  # <semver>` form, never a floating
+`@v2` tag. This prevents tag-hijack supply-chain attacks
+(a compromised maintainer force-pushing `v3` to a malicious commit).
+
+Dependabot's `github-actions` ecosystem understands SHA pins and
+opens PRs to bump the SHA + version-comment when upstream cuts a new
+release. See `.github/dependabot.yml`.
+
+The first-party `actions/*` set is technically owned by GitHub itself
+and is lower risk, but we SHA-pin it too for consistency and because
+OpenSSF Scorecard flags floating tags across the board.
+
 ## Local gate — run BEFORE every push
 
 CI runs these on every push; if any is red locally, do not push. Do all
