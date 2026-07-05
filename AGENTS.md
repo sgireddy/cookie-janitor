@@ -159,6 +159,52 @@ Internal notes to the maintainer inside AGENTS.md, this file, and
 tracker tickets on the maintainer's private tooling remain UNRESTRICTED
 — the ban is on public / semi-public surfaces of this repository only.
 
+## Signed commits and tags
+
+Every commit and tag that lands on `main` should be cryptographically
+signed. See `docs/SIGNING.md` for the SSH-based setup the maintainer
+uses.
+
+**How agents interact with this policy:**
+
+- Agents do NOT have the maintainer's signing key and MUST NOT
+  attempt to sign commits under the maintainer's identity.
+- Agents produce topic-branch commits (unsigned is acceptable there)
+  and open PRs. When the maintainer merges via **squash merge**, the
+  merge commit is authored and signed by the maintainer, and only
+  that signed commit lands on `main`.
+- Do NOT use `git commit -S` in agent-executed commands; that would
+  fail (no key) and pollute the log with confusing errors.
+- Do NOT push under the maintainer's identity with a copied private
+  key. That inverts the property signed commits exist to provide.
+
+**Ruleset enforcement of signed commits:** deferred. Enabling
+`Require signed commits` on the ruleset today would break agent-based
+PR workflows (agent commits on topic branches are unsigned). Once
+the maintainer's setup is stable AND the squash-merge policy is
+locked in, the ruleset can require signatures. Tracked as follow-up.
+
+## Tag ruleset (deferred to its own follow-up)
+
+Currently `main` is protected but tag pushes to `refs/tags/v*` are
+not. This means anyone with `contents: write` (including agent
+tokens) can push a `v*` tag and trigger a release build.
+
+The intended fix is a second ruleset targeting `refs/tags/v*` with:
+
+- `deletion` blocked (no re-tagging a released version)
+- `non_fast_forward` blocked
+- `creation` restricted to the maintainer (bypass actor list)
+
+Applying this requires `Administration: write` scope, which normal
+agent tokens do not have. See `docs/RULESETS.md` for the JSON
+payload the maintainer can PUT via `gh api`, or the click-path if
+they prefer the UI.
+
+Agents SHOULD NOT push `v*` tags in normal operation. If a tag needs
+to be cut, do so on the maintainer's local machine or ask them to
+push the tag manually.
+
 ## Third-party GitHub Actions must be SHA-pinned
 
 Every third-party action referenced from `.github/workflows/*.yml`
