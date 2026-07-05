@@ -263,7 +263,16 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
+      # `contents: write` — softprops/action-gh-release needs it to create
+      # the draft release and upload assets.
       contents: write
+      # `id-token: write` + `attestations: write` — required by
+      # actions/attest-build-provenance to obtain an OIDC token from
+      # GitHub's issuer and record the resulting Sigstore bundle in the
+      # repo's attestations index. Least-privilege: only this job gets
+      # these permissions; the build jobs do not.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
@@ -289,6 +298,26 @@ jobs:
           cp artefacts/*.msi release/
           cp artefacts/*.msi.sha256 release/
           ls -la release/
+
+      - name: Generate SLSA build provenance attestations
+        # Records a Sigstore-signed attestation, published to GitHub's
+        # public attestations index, proving each installer was built
+        # from this specific commit by this specific workflow run.
+        # Users verify with:
+        #
+        #   gh attestation verify Cookie-Janitor-universal2.dmg \
+        #     --repo sgireddy/cookie-janitor
+        #
+        # Only the three shippable installers are subjects — .sha256
+        # sidecars are user-verifiable against the DMG/MSI themselves,
+        # so attesting them separately would be redundant noise in the
+        # public transparency log.
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: |
+            release/Cookie-Janitor-universal2.dmg
+            release/Cookie-Janitor-x64.msi
+            release/Cookie-Janitor-arm64.msi
 
       - name: Determine tag
         id: tag
@@ -361,6 +390,32 @@ jobs:
             $actual   = (Get-FileHash Cookie-Janitor-x64.msi).Hash.ToLower()
             if ($expected -eq $actual) { "OK" } else { "MISMATCH" }
             ```
+
+            ### Verify the build provenance (SLSA)
+
+            Every installer in this release is cryptographically
+            attested by GitHub Actions. The attestation proves the
+            binary was built from a specific commit by a specific
+            workflow run in this repository, using Sigstore's
+            keyless-signing infrastructure. This is stronger than
+            the SHA-256 above — it verifies **who built the file
+            and from what source**, not just that the bytes match.
+
+            Requires the [GitHub CLI](https://cli.github.com/):
+
+            ```sh
+            gh attestation verify Cookie-Janitor-universal2.dmg \
+              --repo ${{ github.repository }}
+            ```
+
+            Expected output includes:
+
+            ```
+            ✓ Verification succeeded!
+            ```
+
+            If verification fails, do not run the installer — treat it
+            as a supply-chain compromise and open an issue.
 
             ### Source
 

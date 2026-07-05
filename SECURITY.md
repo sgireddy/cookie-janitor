@@ -81,6 +81,18 @@ in-scope security issues.
     for the explicit `update-lists` command.
 12. **Sensitive values never appear in logs.** Cookie values are redacted
     by default; only names, domains, and metadata are logged.
+13. **Release binaries carry SLSA build provenance attestations.** Every
+    DMG and MSI is signed via Sigstore keyless signing during the release
+    workflow. Users can verify a downloaded installer was built from a
+    specific commit by GitHub Actions in this repository with:
+
+    ```sh
+    gh attestation verify Cookie-Janitor-<arch>.<dmg|msi> \
+      --repo sgireddy/cookie-janitor
+    ```
+
+    A failed verification is a supply-chain red flag: do not run the
+    installer, open a security advisory instead.
 
 Any code change that weakens or removes one of these guarantees requires
 a `SECURITY-WAIVER:` line in the commit message and approval from two
