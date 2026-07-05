@@ -7,23 +7,8 @@ things go wrong.
 ## Reporting a vulnerability
 
 **Do not open a public GitHub issue for security reports.**
+Use GitHub Security Advisories: https://github.com/sgireddy/cookie-janitor/security/advisories/new
 
-Instead, email **security@<TBD-project-domain>** with:
-
-- A description of the issue and its impact.
-- Steps to reproduce, or a proof-of-concept.
-- Your name / handle for credit, if you want it.
-
-We will:
-
-- Acknowledge receipt within **3 business days**.
-- Provide an initial assessment within **10 business days**.
-- Work toward a fix and coordinated disclosure within **90 days** of the
-  initial report. We may publish sooner if a fix ships sooner.
-- Credit you in the advisory unless you ask us not to.
-
-If you do not receive an acknowledgement in 7 days, please follow up — your
-report may have been caught by spam filtering.
 
 ## Supported versions
 
