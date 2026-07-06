@@ -25,7 +25,7 @@ dependencies = [
     # (Manger-attack OAEP side-channel; not on a path we use, but pinned).
     "pycryptodomex>=3.19.1,<4",
     # Detect running browsers; refuse to operate on a live profile.
-    "psutil>=5.9,<7",
+    "psutil>=5.9,<8",
     # Config and IPC payload validation.
     "pydantic>=2.7,<3",
     # CLI framework.
@@ -157,7 +157,7 @@ test_sources = ["tests"]
 requires = [
     "browser-cookie3>=0.20.1,<0.21",
     "pycryptodomex>=3.19.1,<4",
-    "psutil>=5.9,<7",
+    "psutil>=5.9,<8",
     "pydantic>=2.7,<3",
     "typer>=0.12,<1",
     "rich>=13.7,<16",
