@@ -1,6 +1,6 @@
 [project]
 name = "cookie-janitor"
-version = "0.7.0"
+version = "0.8.0"
 description = "A transparent, open-source helper that shows you every cookie on your machine, explains why it's there, and lets you decide what to keep."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -133,7 +133,7 @@ exclude_dirs = ["tests"]
 [tool.briefcase]
 project_name = "Cookie Janitor"
 bundle = "dev.cookiejanitor"
-version = "0.7.0"
+version = "0.8.0"
 url = "https://github.com/sgireddy/cookie-janitor"
 license.file = "LICENSE"
 author = "Shashi Gireddy"

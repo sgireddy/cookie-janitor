@@ -7,7 +7,7 @@ import logging
 import subprocess  # nosec B404
 import sys
 
-from PySide6.QtCore import QPoint, QSortFilterProxyModel, Qt
+from PySide6.QtCore import QPoint, QSortFilterProxyModel, Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QComboBox,
@@ -37,8 +37,10 @@ from cookie_janitor.policy.decide import ClassifierMode, UserPolicy, decide
 
 from .allowlist_dialog import AllowlistDialog
 from .by_site_model import BySiteModel
+from .cookies_101_dialog import Cookies101Dialog
 from .mode_panel import ModePanel
 from .model import CookiesModel
+from .onboarding import OnboardingDialog, has_seen_onboarding
 
 log = logging.getLogger(__name__)
 
@@ -181,9 +183,22 @@ class MainWindow(QMainWindow):
         # Filter against domain (col 3) + name (col 4) + rationale (col 6).
         self._proxy.setFilterKeyColumn(-1)
 
+        # Non-modal Cookies 101 dialog. Constructed lazily on first
+        # open so we don't pay its cost on every launch — the vast
+        # majority of sessions never open it after the first time.
+        self._cookies_101_dialog: Cookies101Dialog | None = None
+
         self._build_ui()
         self._build_menu()
         self._refresh_profiles()
+
+        # Defer the onboarding modal until AFTER the main window has
+        # painted once. If we show the modal from __init__ synchronously
+        # it appears over a half-drawn main window, which looks broken
+        # and — on some Wayland compositors — actually races the main
+        # window's own show() call. 0-ms singleShot fires after the
+        # current event-loop iteration, which is what we want.
+        QTimer.singleShot(0, self._maybe_show_onboarding)
 
     # --- UI construction ---------------------------------------------------
 
@@ -340,6 +355,12 @@ class MainWindow(QMainWindow):
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
         menu.addAction(quit_action)
+
+        help_menu = self.menuBar().addMenu("&Help")
+        cookies_101_action = QAction("&Cookies 101…", self)
+        cookies_101_action.setShortcut("F1")
+        cookies_101_action.triggered.connect(self._show_cookies_101)
+        help_menu.addAction(cookies_101_action)
 
     # --- Data flow ---------------------------------------------------------
 
@@ -665,6 +686,36 @@ class MainWindow(QMainWindow):
                 " has a one-line reason in the table.</p>"
             ),
         )
+
+    def _show_cookies_101(self) -> None:
+        """Open (or raise) the non-modal Cookies 101 dialog.
+
+        Lazy construction — first open builds the widget, subsequent
+        opens re-use it. ``show() + raise_() + activateWindow()`` is
+        the standard Qt pattern for "focus this window if it's already
+        open, otherwise open it".
+        """
+        if self._cookies_101_dialog is None:
+            self._cookies_101_dialog = Cookies101Dialog(self)
+        self._cookies_101_dialog.show()
+        self._cookies_101_dialog.raise_()
+        self._cookies_101_dialog.activateWindow()
+
+    def _maybe_show_onboarding(self) -> None:
+        """Show the first-launch modal if the user hasn't seen it yet.
+
+        Deferred from ``__init__`` via ``QTimer.singleShot(0, ...)`` so
+        the main window has painted first. If the user clicks "Read
+        Cookies 101" we chain into :meth:`_show_cookies_101` — the
+        onboarding modal is a funnel INTO the same dialog the Help
+        menu opens, not a parallel surface.
+        """
+        if has_seen_onboarding():
+            return
+        dlg = OnboardingDialog(self)
+        dlg.exec()
+        if dlg.user_wants_to_read():
+            self._show_cookies_101()
 
     # --- Mode + allow-list -------------------------------------------------
 

@@ -230,7 +230,7 @@ wheels = [
 
 [[package]]
 name = "cookie-janitor"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "browser-cookie3" },
@@ -264,7 +264,7 @@ requires-dist = [
     { name = "browser-cookie3", specifier = ">=0.20.1,<0.21" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7" },
-    { name = "psutil", specifier = ">=5.9,<7" },
+    { name = "psutil", specifier = ">=5.9,<8" },
     { name = "pycryptodomex", specifier = ">=3.19.1,<4" },
     { name = "pydantic", specifier = ">=2.7,<3" },
     { name = "pyside6", marker = "extra == 'dev'", specifier = ">=6.7,<7" },
@@ -272,8 +272,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "pytest-qt", marker = "extra == 'dev'", specifier = ">=4.4" },
-    { name = "rich", specifier = ">=13.7,<15" },
-    { name = "ruamel-yaml", specifier = ">=0.18,<0.19" },
+    { name = "rich", specifier = ">=13.7,<16" },
+    { name = "ruamel-yaml", specifier = ">=0.18,<0.20" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "typer", specifier = ">=0.12,<1" },
     { name = "types-psutil", marker = "extra == 'dev'" },

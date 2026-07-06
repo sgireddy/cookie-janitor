@@ -20,6 +20,11 @@ A cross-platform desktop tool that:
    first-party vs third-party, and **a one-line rationale citing the source**.
 4. Lets **you** decide what to keep or delete. Nothing is deleted without
    your explicit confirmation. Dry-run is the default.
+5. **Explains itself.** In the GUI, Help → Cookies 101… opens a
+   plain-English guide to what cookies are, which ones are safe to
+   delete, and what Cookie Janitor is *not*. First-time users see a
+   short teaser on launch. Full long-form doc at
+   [`docs/COOKIES-101.md`](docs/COOKIES-101.md).
 
 ### Classifier modes
 
