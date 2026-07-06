@@ -33,7 +33,7 @@ dependencies = [
     # Rich terminal output for the CLI.
     "rich>=13.7,<16",
     # YAML for the user config file (allow-list, policy).
-    "ruamel.yaml>=0.18,<0.19",
+    "ruamel.yaml>=0.18,<0.20",
 ]
 
 [project.optional-dependencies]
@@ -161,7 +161,7 @@ requires = [
     "pydantic>=2.7,<3",
     "typer>=0.12,<1",
     "rich>=13.7,<16",
-    "ruamel.yaml>=0.18,<0.19",
+    "ruamel.yaml>=0.18,<0.20",
     "PySide6>=6.7,<7",
 ]
 
