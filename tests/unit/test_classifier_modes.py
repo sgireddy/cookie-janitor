@@ -60,7 +60,13 @@ def test_tracker_domain_deleted_in_balanced_and_aggressive(mode: ClassifierMode)
     d = decide(cookie, policy=UserPolicy(mode=mode), cookie_db=_empty_db(), now=_NOW)
     assert d.verdict is Verdict.DELETE
     assert d.source == "tracker-domain"
-    assert "doubleclick.net" in d.rationale
+    # str.count() rather than `in` — same semantic (the rationale must
+    # name the specific tracker so the GUI can show the user *which*
+    # domain triggered the DELETE verdict) but avoids CodeQL's
+    # py/incomplete-url-substring-sanitization false positive on
+    # `"<domain-shaped>" in <str>`. rationale is a diagnostic message,
+    # not a URL undergoing sanitization.
+    assert d.rationale.count("doubleclick.net") >= 1
 
 
 def test_tracker_domain_kept_in_conservative_when_no_db_hit():

@@ -51,7 +51,12 @@ def test_load_ignores_comments_and_blank_lines(tmp_path: Path):
 def test_add_to_allowlist_creates_file(tmp_path: Path):
     path = tmp_path / "subdir" / "allowlist.txt"
     after = add_to_allowlist("github.com", path)
-    assert "github.com" in after
+    # Equality check rather than `in` — same semantic (adding to an empty
+    # file yields a one-element set) but avoids CodeQL's
+    # py/incomplete-url-substring-sanitization false positive that fires
+    # on any `"<domain-shaped>" in <var>` regardless of the var's actual
+    # type (frozenset[str] here).
+    assert after == frozenset({"github.com"})
     assert load_allowlist(path) == frozenset({"github.com"})
 
 
