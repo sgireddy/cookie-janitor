@@ -70,24 +70,25 @@ jobs:
           # Intel Macs (2017–2019 MacBook Pros, 2020 iMacs, etc.) and
           # every Apple Silicon Mac run the same artefact.
           #
-          # Mechanism: Briefcase reads `pyproject.toml`'s
-          # `[tool.briefcase.app.cookie_janitor.macOS] universal_build`
-          # setting, which we don't set to True permanently (universal2
-          # doubles compile time on developer laptops). Instead we flip
-          # it via the BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD env var only
-          # in CI. This is the same knob scripts/build-mac-dmg.sh uses
-          # locally on the Intel Mac (host `mac`).
+          # Mechanism: `universal_build = true` in pyproject.toml under
+          # `[tool.briefcase.app.cookie_janitor.macOS]`. Briefcase then
+          # pip-installs every dependency twice (once per arch) and
+          # `lipo -create`s the resulting .dylib pairs into fat binaries.
           #
-          # We no longer need the macos-13 (Intel) runner — universal2
-          # from macos-14 covers Intel too, and macos-13 is being
-          # retired by GitHub in any case.
+          # NB: earlier revisions of this file set an env var
+          # `BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD=true` here, believing it
+          # would override the TOML. Briefcase doesn't read that env var
+          # — TOML always wins — so from v0.7.1 through v0.8.4 the CI
+          # actually produced arm64-thin builds despite the "universal2"
+          # filename. That was the RCA for the "not supported on this
+          # Mac" launch failure. See docs/SIGNING-MACOS.md § history.
+          #
+          # We no longer need the macos-13 (Intel) runner — a real
+          # universal2 build from macos-14 covers Intel too, and macos-13
+          # was retired by GitHub anyway.
           - runner: macos-14
             arch: universal2
     runs-on: ${{ matrix.runner }}
-    env:
-      # Flip briefcase's macOS backend into universal2 mode. Overrides
-      # pyproject.toml at build time; no permanent file change needed.
-      BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD: "true"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -210,6 +211,46 @@ jobs:
           renamed="dist/Cookie-Janitor-${{ matrix.arch }}.dmg"
           mv "${dmg}" "${renamed}"
           echo "dmg=${renamed}" >> "$GITHUB_OUTPUT"
+
+      - name: Assert the .app is genuinely universal2
+        # Guardrail against the v0.7.1–v0.8.4 phantom: for two months we
+        # shipped DMGs named "-universal2" containing arm64-thin apps
+        # because `universal_build` in pyproject.toml was false and a
+        # phantom env var was believed to override it. This step fails
+        # the build if `codesign -dvv` on the built .app doesn't report
+        # a fat binary, and independently `lipo -info` on both the main
+        # executable and a critical PySide6 .dylib.
+        if: matrix.arch == 'universal2'
+        run: |
+          set -euo pipefail
+          app="$(find build -type d -name 'Cookie Janitor.app' -path '*/macos/app/*' | head -1)"
+          [ -n "${app}" ] || { echo "no built .app found" >&2; exit 1; }
+          echo "Checking: ${app}"
+          fmt="$(codesign -dvv "${app}" 2>&1 | grep '^Format=')"
+          echo "  ${fmt}"
+          case "${fmt}" in
+            *"Mach-O universal"*) ;;
+            *) echo "FAIL: main executable is not universal2 — got: ${fmt}" >&2; exit 1 ;;
+          esac
+          assert_fat() {
+            local label="$1" binary="$2" info
+            info="$(lipo -info "${binary}" 2>&1)"
+            echo "  ${label}: ${info}"
+            if ! echo "${info}" | grep -q 'x86_64'; then
+              echo "FAIL: ${label} missing x86_64 slice" >&2
+              exit 1
+            fi
+            if ! echo "${info}" | grep -q 'arm64'; then
+              echo "FAIL: ${label} missing arm64 slice" >&2
+              exit 1
+            fi
+          }
+          assert_fat "main  " "${app}/Contents/MacOS/Cookie Janitor"
+          qtcore="$(find "${app}" -path '*PySide6*QtCore.framework/Versions/A/QtCore' | head -1)"
+          if [ -n "${qtcore}" ]; then
+            assert_fat "QtCore" "${qtcore}"
+          fi
+          echo "PASS: .app is genuinely universal2"
 
       - name: Notarize and staple .app and DMG
         # Two-round notarize+staple. Stapling ONLY the DMG (round 2) isn't

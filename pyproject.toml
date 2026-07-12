@@ -1,6 +1,6 @@
 [project]
 name = "cookie-janitor"
-version = "0.8.4"
+version = "0.8.5"
 description = "A transparent, open-source helper that shows you every cookie on your machine, explains why it's there, and lets you decide what to keep."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -133,7 +133,7 @@ exclude_dirs = ["tests"]
 [tool.briefcase]
 project_name = "Cookie Janitor"
 bundle = "dev.cookiejanitor"
-version = "0.8.4"
+version = "0.8.5"
 url = "https://github.com/sgireddy/cookie-janitor"
 license.file = "LICENSE"
 author = "Shashi Gireddy"
@@ -166,10 +166,24 @@ requires = [
 ]
 
 [tool.briefcase.app.cookie_janitor.macOS]
-# Universal2 wheels mean a single x86_64 build can ship a universal app
-# in principle, but briefcase still produces per-arch artifacts. We let
-# the CI matrix do both arm64 and x86_64.
-universal_build = false
+# universal_build = true tells briefcase's macOS backend to install
+# every pip dependency (PySide6, pydantic-core, pycryptodomex, psutil,
+# lz4, ...) TWICE — once for x86_64 and once for arm64 — and then
+# `lipo -create` the matching .dylib pairs into universal2 fat binaries.
+# Result: one .app that runs on any Mac from 2017 onward.
+#
+# History: this key was `false` from v0.7.1 through v0.8.4. The release
+# workflow SET an env var `BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD=true`
+# thinking that would override the TOML — but briefcase doesn't read
+# that env var, so TOML kept winning. The macos-14 CI runner is arm64,
+# so briefcase built arm64-thin. DMGs were named "-universal2" (the
+# workflow renamed the file) but the .app inside was arm64-only. On
+# Intel Macs macOS shows "Cookie Janitor is not supported on this Mac"
+# because there's no x86_64 code to execute. Setting this to true
+# is the actual fix; the phantom env var is removed from release.yml.
+# Validated by building on mbp2019 (Intel Sequoia): the .app launches
+# with all 509 nested Mach-O binaries reported as `x86_64 arm64`.
+universal_build = true
 requires = []
 # Ad-hoc sign by default; CI will switch to a real Developer ID if the
 # DEVELOPER_ID_APPLICATION secret is set.
