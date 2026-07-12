@@ -250,6 +250,13 @@ jobs:
           KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           DMG: ${{ steps.locate.outputs.dmg }}
+          # The Developer ID identity is needed here (in addition to the
+          # Briefcase package step) because `hdiutil create` produces an
+          # unsigned DMG; we sign it ourselves with `codesign` before
+          # Round 2 notarize. spctl -a -t install requires the DMG itself
+          # to carry a Developer ID signature — a notarization ticket
+          # alone isn't enough.
+          IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
         run: |
           set -euo pipefail
 
@@ -331,7 +338,19 @@ jobs:
             -quiet \
             "${DMG}"
 
-          # ----- Round 2: notarize + staple the new DMG -----
+          # Sign the DMG with our Developer ID cert. hdiutil produces
+          # unsigned DMGs; spctl -a -t install requires the DMG bytes
+          # themselves to carry a Developer ID signature (a notarization
+          # ticket alone isn't enough for Gatekeeper's install policy).
+          # Signature MUST be applied BEFORE Round 2 notarize because
+          # signing changes the DMG hash — otherwise the notarization
+          # ticket wouldn't match the on-disk bytes.
+          # --timestamp requests Apple's trusted timestamp so the
+          # signature remains verifiable after the cert expires.
+          codesign --sign "${IDENTITY}" --timestamp "${DMG}"
+          codesign --verify --verbose=2 "${DMG}"
+
+          # ----- Round 2: notarize + staple the new (signed) DMG -----
           notarize "${DMG}" "DMG" || { rm -f "$P8_PATH"; exit 1; }
           xcrun stapler staple "${DMG}"
           xcrun stapler validate "${DMG}"
