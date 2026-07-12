@@ -96,13 +96,24 @@ are present:
    in v0.8.1 before this fix) causes Sequoia to show the
    "not supported on this Mac" error when it can't complete an
    online Gatekeeper query.
-4. **Rebuild the DMG** with the stapled `.app`. `hdiutil convert`
-   briefcase's DMG to `UDRW` (read-write) format, mount it with
-   `-nobrowse -noautoopen`, replace the unstapled `.app` inside with
-   the stapled one, unmount, and `hdiutil convert` back to `ULFO`
-   (LZFSE-compressed read-only) — the same format briefcase produced.
-   Briefcase's background image, window layout, and Applications
-   symlink survive intact because we only touch the enclosed `.app`.
+4. **Build a fresh DMG** containing the stapled `.app`.
+   `hdiutil create -srcfolder` around a staging directory holding just
+   the stapled `.app` and a symlink to `/Applications`. Discards
+   briefcase's DMG entirely.
+
+   An earlier v0.8.2 attempt tried to preserve briefcase's fancy DMG
+   layout by `hdiutil convert`ing to `UDRW`, mounting, and swapping
+   the `.app` inside. That failed with `cp: No space left on device`
+   during the copy: `UDRW` conversion produces a read-write DMG whose
+   filesystem has essentially zero free space, and HFS+/APFS journal
+   + copy buffers need some. Building a fresh DMG from a staging
+   directory on the runner's main disk sidesteps the problem.
+
+   Trade-off: briefcase's DMG background image and window layout are
+   lost. The DMG becomes a plain Finder icon view — `.app` on the
+   left, `/Applications` symlink on the right, drag one to the other.
+   Correctness before polish; polish is a nice-to-have to add back
+   later.
 5. **Notarize + staple the DMG.** Second `notarytool submit --wait`.
    Apple recognizes the enclosed `.app` is already notarized so this
    round is fast. Then `stapler staple` embeds the ticket in the DMG

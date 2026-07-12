@@ -225,11 +225,21 @@ jobs:
         # Round 1: notarize the .app zipped up (briefcase left it signed
         # but unstapled in the build directory), then `stapler staple`
         # the .app in place.
-        # Rebuild:  swap the stapled .app into the DMG that briefcase
-        # produced, using hdiutil convert → mount RW → replace → convert
-        # RO. Preserves briefcase's DMG background/window/layout.
+        # Rebuild:  build a fresh DMG from scratch with `hdiutil create
+        # -srcfolder` around a staging directory containing the stapled
+        # .app + an `/Applications` symlink. Discards briefcase's DMG.
+        # (Earlier v0.8.2 attempt tried `hdiutil convert -format UDRW`
+        # then mount-and-replace, but the RW DMG's filesystem had no
+        # free space for the copy, so cp failed with "No space left on
+        # device". Fresh DMG from scratch avoids the problem entirely.)
         # Round 2: notarize the new DMG (fast — Apple recognizes the
         # already-notarized .app inside), then staple the DMG.
+        #
+        # Trade-off: briefcase's fancy background image + window layout
+        # is lost. The DMG becomes a plain Finder view — .app on the
+        # left, /Applications symlink on the right. Users drag to
+        # install. Correctness over polish; polish can return in a
+        # later release.
         #
         # After both stapled, `spctl -a -t install` and
         # `spctl -a -t exec` confirm Gatekeeper acceptance from both
@@ -284,32 +294,42 @@ jobs:
           xcrun stapler staple "${APP}"
           xcrun stapler validate "${APP}"
 
-          # ----- Rebuild DMG with the stapled .app in place -----
-          RW_DMG="$RUNNER_TEMP/rw.dmg"
-          MOUNT="$RUNNER_TEMP/cj-mount"
-          mkdir -p "${MOUNT}"
-
-          # UDRW = read-write. Preserves inner filesystem (including
-          # briefcase's background image and Applications-symlink layout);
-          # only the DMG's outer format changes.
-          hdiutil convert "${DMG}" -format UDRW -o "${RW_DMG}" -ov -quiet
-          hdiutil attach "${RW_DMG}" -mountpoint "${MOUNT}" \
-            -nobrowse -noautoopen -quiet
-
+          # ----- Build a fresh DMG containing the stapled .app -----
+          # Discard briefcase's DMG (it contains the pre-staple .app copy).
+          # Then hdiutil-create a new DMG from a staging directory. The
+          # staging directory is *fresh* on the runner's main disk, so
+          # there's plenty of free space — unlike a UDRW-converted DMG.
           APP_NAME="$(basename "${APP}")"
-          # ${MOUNT:?} + ${APP_NAME:?} = defensive check: if either is
-          # somehow empty, this expands to `rm -rf ""/""` which errors
-          # out. Belt-and-suspenders against a hostile catastrophic
-          # `rm -rf /` if $RUNNER_TEMP were ever unset (shellcheck SC2115).
-          rm -rf "${MOUNT:?}/${APP_NAME:?}"
-          cp -R "${APP}" "${MOUNT}/${APP_NAME}"
+          STAGE="$RUNNER_TEMP/dmg-stage"
 
-          hdiutil detach "${MOUNT}" -force -quiet
+          # Belt-and-suspenders: assert STAGE is a subdirectory of
+          # $RUNNER_TEMP so `rm -rf` can never expand to something bad
+          # (shellcheck SC2115).
+          rm -rf "${STAGE:?}"
+          mkdir -p "${STAGE}"
 
-          # ULFO = LZFSE-compressed read-only, matches briefcase's default.
-          hdiutil convert "${RW_DMG}" -format ULFO -o "${DMG}.new" -ov -quiet
-          mv "${DMG}.new" "${DMG}"
-          rm -f "${RW_DMG}"
+          # ditto preserves symlinks and extended attributes correctly,
+          # unlike cp -R on macOS with hard-linked files.
+          ditto "${APP}" "${STAGE}/${APP_NAME}"
+          ln -s /Applications "${STAGE}/Applications"
+
+          # Volume name for the new DMG — read straight from the .app's
+          # Info.plist so it matches briefcase's convention exactly
+          # ("Cookie Janitor 0.8.3", not "Cookie-Janitor-universal2").
+          # plutil -extract with 'raw' output gives just the value.
+          VERSION="$(plutil -extract CFBundleShortVersionString raw \
+            "${APP}/Contents/Info.plist")"
+          VOLNAME="Cookie Janitor ${VERSION}"
+          echo "New DMG volume name: ${VOLNAME}"
+
+          rm -f "${DMG}"
+          hdiutil create \
+            -srcfolder "${STAGE}" \
+            -volname "${VOLNAME}" \
+            -format ULFO \
+            -ov \
+            -quiet \
+            "${DMG}"
 
           # ----- Round 2: notarize + staple the new DMG -----
           notarize "${DMG}" "DMG" || { rm -f "$P8_PATH"; exit 1; }
@@ -318,9 +338,10 @@ jobs:
 
           # ----- Final acceptance checks (both perspectives) -----
           spctl -a -vvv -t install "${DMG}"
-          # Also verify the .app inside the (now finalized) DMG is
-          # independently launchable — the exact failure the previous
-          # v0.8.1 attempt hit.
+          # Also verify the .app inside the finalized DMG is independently
+          # launchable — the exact failure v0.8.1 hit on macOS 15.
+          MOUNT="$RUNNER_TEMP/verify-mount"
+          mkdir -p "${MOUNT}"
           hdiutil attach "${DMG}" -mountpoint "${MOUNT}" \
             -nobrowse -noautoopen -readonly -quiet
           spctl -a -vvv -t exec "${MOUNT}/${APP_NAME}"
