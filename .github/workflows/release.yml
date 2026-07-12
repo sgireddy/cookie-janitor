@@ -211,18 +211,29 @@ jobs:
           mv "${dmg}" "${renamed}"
           echo "dmg=${renamed}" >> "$GITHUB_OUTPUT"
 
-      - name: Notarize and staple DMG
-        # `notarytool submit --wait` blocks until Apple returns Accepted
-        # or Rejected (typically 5–15 min, capped at 30). After
-        # notarization succeeds, `stapler staple` embeds the notarization
-        # ticket in the DMG so Gatekeeper accepts it even when the user
-        # is offline. Finally `spctl -a -t install` verifies Gatekeeper
-        # would actually accept the DMG for install.
+      - name: Notarize and staple .app and DMG
+        # Two-round notarize+staple. Stapling ONLY the DMG (round 2) isn't
+        # enough on macOS 15+ — when a user mounts the DMG and launches the
+        # .app straight from the mounted volume (or drags it to
+        # /Applications), Gatekeeper looks for a stapled ticket on the
+        # .app itself, not on the enclosing DMG. Without one, it falls
+        # back to an online check that can fail with the misleading
+        # "not supported on this Mac" error.
         #
-        # If notarization is rejected, the log is fetched and printed
-        # so the failure reason (usually a specific unsigned binary
-        # inside the .app) is visible in the CI log rather than
-        # requiring a maintainer to fetch it later.
+        # The fix is Apple's documented pattern: staple BOTH artifacts.
+        #
+        # Round 1: notarize the .app zipped up (briefcase left it signed
+        # but unstapled in the build directory), then `stapler staple`
+        # the .app in place.
+        # Rebuild:  swap the stapled .app into the DMG that briefcase
+        # produced, using hdiutil convert → mount RW → replace → convert
+        # RO. Preserves briefcase's DMG background/window/layout.
+        # Round 2: notarize the new DMG (fast — Apple recognizes the
+        # already-notarized .app inside), then staple the DMG.
+        #
+        # After both stapled, `spctl -a -t install` and
+        # `spctl -a -t exec` confirm Gatekeeper acceptance from both
+        # perspectives (installing the DMG and executing the .app).
         if: steps.signing.outputs.enabled == 'true'
         env:
           P8_B64: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
@@ -231,39 +242,99 @@ jobs:
           DMG: ${{ steps.locate.outputs.dmg }}
         run: |
           set -euo pipefail
+
           P8_PATH="$RUNNER_TEMP/notary.p8"
           printf '%s' "$P8_B64" | base64 --decode > "$P8_PATH"
 
-          # Submit and wait for Apple's verdict.
-          if ! xcrun notarytool submit "$DMG" \
-                 --key "$P8_PATH" \
-                 --key-id "$KEY_ID" \
-                 --issuer "$ISSUER_ID" \
-                 --wait \
-                 --timeout 30m; then
-            echo "::error::notarytool submit failed — fetching most recent log"
-            SUB_ID="$(xcrun notarytool history \
+          # Shared notarization helper: submit + wait + on failure dump log.
+          notarize() {
+            local target="$1"
+            local label="$2"
+            if xcrun notarytool submit "$target" \
+                 --key "$P8_PATH" --key-id "$KEY_ID" --issuer "$ISSUER_ID" \
+                 --wait --timeout 30m; then
+              return 0
+            fi
+            echo "::error::notarytool submit ($label) failed — fetching log"
+            local sub_id
+            sub_id="$(xcrun notarytool history \
               --key "$P8_PATH" --key-id "$KEY_ID" --issuer "$ISSUER_ID" \
-              --output-format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["history"][0]["id"])')"
-            xcrun notarytool log "$SUB_ID" \
+              --output-format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["history"][0]["id"])')"
+            xcrun notarytool log "$sub_id" \
               --key "$P8_PATH" --key-id "$KEY_ID" --issuer "$ISSUER_ID" || true
-            rm -f "$P8_PATH"
+            return 1
+          }
+
+          # ----- Round 1: notarize + staple the .app -----
+          APP="$(find build -maxdepth 6 -name '*.app' -type d -print -quit)"
+          if [ -z "${APP}" ]; then
+            echo "::error::No .app found under build/ — briefcase output layout changed?"
             exit 1
           fi
+          echo "Located .app: ${APP}"
 
-          # Staple the notarization ticket into the DMG.
-          xcrun stapler staple "$DMG"
-          xcrun stapler validate "$DMG"
+          # notarytool accepts .zip/.dmg/.pkg — zip the .app with ditto
+          # (preserves symlinks, resource forks, and code-signing metadata,
+          # which plain `zip` mangles).
+          APP_ZIP="$RUNNER_TEMP/app-to-notarize.zip"
+          ditto -c -k --keepParent --sequesterRsrc "${APP}" "${APP_ZIP}"
 
-          # Confirm Gatekeeper acceptance for the "install" policy.
-          spctl -a -vvv -t install "$DMG"
+          notarize "${APP_ZIP}" ".app" || { rm -f "$P8_PATH"; exit 1; }
+          xcrun stapler staple "${APP}"
+          xcrun stapler validate "${APP}"
 
-          rm -f "$P8_PATH"
+          # ----- Rebuild DMG with the stapled .app in place -----
+          RW_DMG="$RUNNER_TEMP/rw.dmg"
+          MOUNT="$RUNNER_TEMP/cj-mount"
+          mkdir -p "${MOUNT}"
+
+          # UDRW = read-write. Preserves inner filesystem (including
+          # briefcase's background image and Applications-symlink layout);
+          # only the DMG's outer format changes.
+          hdiutil convert "${DMG}" -format UDRW -o "${RW_DMG}" -ov -quiet
+          hdiutil attach "${RW_DMG}" -mountpoint "${MOUNT}" \
+            -nobrowse -noautoopen -quiet
+
+          APP_NAME="$(basename "${APP}")"
+          # ${MOUNT:?} + ${APP_NAME:?} = defensive check: if either is
+          # somehow empty, this expands to `rm -rf ""/""` which errors
+          # out. Belt-and-suspenders against a hostile catastrophic
+          # `rm -rf /` if $RUNNER_TEMP were ever unset (shellcheck SC2115).
+          rm -rf "${MOUNT:?}/${APP_NAME:?}"
+          cp -R "${APP}" "${MOUNT}/${APP_NAME}"
+
+          hdiutil detach "${MOUNT}" -force -quiet
+
+          # ULFO = LZFSE-compressed read-only, matches briefcase's default.
+          hdiutil convert "${RW_DMG}" -format ULFO -o "${DMG}.new" -ov -quiet
+          mv "${DMG}.new" "${DMG}"
+          rm -f "${RW_DMG}"
+
+          # ----- Round 2: notarize + staple the new DMG -----
+          notarize "${DMG}" "DMG" || { rm -f "$P8_PATH"; exit 1; }
+          xcrun stapler staple "${DMG}"
+          xcrun stapler validate "${DMG}"
+
+          # ----- Final acceptance checks (both perspectives) -----
+          spctl -a -vvv -t install "${DMG}"
+          # Also verify the .app inside the (now finalized) DMG is
+          # independently launchable — the exact failure the previous
+          # v0.8.1 attempt hit.
+          hdiutil attach "${DMG}" -mountpoint "${MOUNT}" \
+            -nobrowse -noautoopen -readonly -quiet
+          spctl -a -vvv -t exec "${MOUNT}/${APP_NAME}"
+          xcrun stapler validate "${MOUNT}/${APP_NAME}"
+          hdiutil detach "${MOUNT}" -force -quiet
+
+          rm -f "${P8_PATH}"
 
       - name: Compute SHA-256
-        # SHA-256 is computed AFTER stapling, because stapling modifies
-        # the DMG bytes to embed the notarization ticket. Users
-        # verifying the hash must see the same bytes we distribute.
+        # SHA-256 is computed AFTER both notarization rounds, DMG
+        # reconversion, and both staples — i.e. against the exact bytes
+        # users will download. Any earlier hash would drift because
+        # (a) hdiutil convert produces different bytes, and (b) stapler
+        # embeds the ticket into the DMG.
         run: |
           cd dist
           shasum -a 256 "$(basename '${{ steps.locate.outputs.dmg }}')" \
