@@ -376,6 +376,31 @@ setup commands.
 > unavailable, or when you want to sign an artefact with a certificate
 > that isn't in repo secrets yet.
 
+## Roadmap — known follow-up work
+
+Post-v0.8.5 there are three known, scoped work items. They are
+tracked in [`docs/HANDOFF.md`](docs/HANDOFF.md) with concrete
+options, effort estimates, and mechanical checklists. Summary:
+
+1. **Bundle size.** v0.8.5 ships a 513 MB universal2 DMG — half
+   the bytes are Qt frameworks, doubled by dual-arch. A one-PR
+   diet using briefcase's `cleanup_paths` plus swapping
+   `PySide6` for `PySide6-Essentials` should get to ~250 MB.
+   Details in HANDOFF § 1.
+2. **Windows code signing + Winget listing.** Today's MSI is
+   unsigned, so SmartScreen warns first-time users. Azure
+   Trusted Signing (≈$10/mo, HSM-backed, no shipped hardware
+   token) removes the warning and unlocks a Winget submission
+   for one-line `winget install`. Details in HANDOFF § 3a/3b.
+3. **Store presence.** Mac App Store is deliberately declined
+   (see `AGENTS.md` decision D18 — sandbox forbids the tool's
+   core function). Microsoft Store via MSIX is technically
+   feasible after Windows signing lands. Details in HANDOFF § 2
+   and § 3c.
+
+Contributions welcome on any of these — open an issue first to
+sync on approach.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) (to be written). All contributions
