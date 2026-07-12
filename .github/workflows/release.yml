@@ -179,11 +179,21 @@ jobs:
         # hardened runtime — both are prerequisites for notarization.
         # Without --identity, --adhoc-sign produces an unsigned but
         # launchable bundle for local development.
+        #
+        # --no-notarize is critical for CI: briefcase's built-in
+        # notarization looks up credentials via a stored keychain
+        # profile named `briefcase-macOS-<TEAM_ID>` that would need
+        # `xcrun notarytool store-credentials` run interactively. In CI
+        # we do notarization ourselves in a later step using the
+        # App Store Connect .p8 key straight from secrets, which is
+        # the credential shape Apple's notarization API actually wants
+        # and which works headlessly. This flag disables briefcase's
+        # attempt so control passes cleanly to our step.
         env:
           IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
         run: |
           if [ "${{ steps.signing.outputs.enabled }}" = "true" ]; then
-            uv run briefcase package macOS app --no-input --identity "$IDENTITY"
+            uv run briefcase package macOS app --no-input --identity "$IDENTITY" --no-notarize
           else
             uv run briefcase package macOS app --adhoc-sign --no-input
           fi

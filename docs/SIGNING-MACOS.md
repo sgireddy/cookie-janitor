@@ -73,10 +73,17 @@ are present:
    `codesign` can use the key without a GUI prompt. Prepend the
    ephemeral keychain to the search list. Delete the on-disk `.p12`
    immediately after import.
-2. **Briefcase package** with `--identity "$MACOS_DEVELOPER_ID_APPLICATION"`.
+2. **Briefcase package** with `--identity "$MACOS_DEVELOPER_ID_APPLICATION" --no-notarize`.
    Briefcase signs the `.app` bundle and every nested Mach-O binary
    (Python framework, Qt frameworks, C extension modules) with the
    Developer ID cert, and enables the hardened runtime.
+
+   The `--no-notarize` flag is deliberate: briefcase's built-in
+   notarization looks up credentials via a stored keychain profile
+   named `briefcase-macOS-<TEAM_ID>` that would require
+   `xcrun notarytool store-credentials` to be run interactively on the
+   build machine — impossible in CI. We hand off to our own step
+   (below) which uses the `.p8` API key from secrets directly.
 3. **Notarize** via `xcrun notarytool submit --wait` using the
    App Store Connect API key. Apple's service takes 5–15 minutes
    typically to scan the DMG.
