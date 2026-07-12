@@ -249,3 +249,45 @@ access use cases since ~2019.
 Developer ID + notarization gives users the same "verified by Apple"
 signal without the sandbox restriction. Distribution stays via
 GitHub Releases.
+
+## History — the universal2 phantom (v0.7.1 → v0.8.4)
+
+For roughly two months and six release attempts, the DMG we shipped
+was **named** `Cookie-Janitor-universal2.dmg` but the `.app` inside
+was arm64-thin. On Intel Macs macOS refused to launch it and
+displayed "Cookie Janitor is not supported on this Mac."
+
+The chain of accidents that produced this:
+
+1. `pyproject.toml` had `universal_build = false` under
+   `[tool.briefcase.app.cookie_janitor.macOS]`, with a comment
+   explaining "we let the CI matrix do both arm64 and x86_64."
+2. The CI matrix had only ONE entry (`macos-14`, Apple Silicon), not
+   two. The comment described a plan that never actually shipped.
+3. `.github/workflows/release.yml` set an env var
+   `BRIEFCASE_MACOS_APP_UNIVERSAL_BUILD=true` intending to override
+   the TOML. Briefcase does not read that env var. The override
+   silently did nothing.
+4. Briefcase happily built arm64-thin for whatever the runner arch
+   was. `codesign -dvv` on the resulting .app said
+   `Format=app bundle with Mach-O thin (arm64)` — but nobody looked
+   at that line.
+5. The workflow's `Locate built DMG` step renamed the file to
+   `Cookie-Janitor-universal2.dmg`. The name lied.
+6. `spctl -a -t exec` on the CI runner passed, because spctl only
+   checks signature/notarization — it doesn't invoke dyld. On the
+   arm64 runner an arm64 slice satisfies spctl. Nobody launched the
+   app in CI.
+7. Version smoke tests happened on Apple Silicon dev machines. The
+   app ran fine there. Nobody tested on Intel.
+
+The `Format=app bundle with Mach-O thin (arm64)` line in
+`codesign -dvv` output is the fastest way to spot this. Whenever
+we bump briefcase or change the runner matrix, verify the built
+`.app` reports `Format=app bundle with Mach-O universal (x86_64
+arm64)` before shipping.
+
+Ideally CI would also `open` the built .app briefly to force dyld to
+resolve every bundled `.dylib` — that would have caught the phantom
+in a single run. A follow-up on the release workflow could add a
+headless launch check.
