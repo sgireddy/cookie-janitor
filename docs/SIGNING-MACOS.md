@@ -114,17 +114,28 @@ are present:
    left, `/Applications` symlink on the right, drag one to the other.
    Correctness before polish; polish is a nice-to-have to add back
    later.
-5. **Notarize + staple the DMG.** Second `notarytool submit --wait`.
+5. **Sign the DMG** with our Developer ID cert
+   (`codesign --sign "$MACOS_DEVELOPER_ID_APPLICATION" --timestamp`).
+   `hdiutil create` produces unsigned DMGs, and `spctl -a -t install`
+   requires the DMG bytes themselves to carry a Developer ID
+   signature — a notarization ticket alone isn't enough for
+   Gatekeeper's install policy. (This was the v0.8.3 failure:
+   `dist/Cookie-Janitor-universal2.dmg: rejected — no usable
+   signature`.) `--timestamp` requests Apple's trusted timestamp
+   service so the signature remains verifiable after the cert
+   expires. Signing MUST happen **before** the DMG's notarization
+   round, otherwise the ticket wouldn't match the on-disk bytes.
+6. **Notarize + staple the DMG.** Second `notarytool submit --wait`.
    Apple recognizes the enclosed `.app` is already notarized so this
    round is fast. Then `stapler staple` embeds the ticket in the DMG
    for offline verification of the mounted volume.
-6. **Verify from both perspectives:**
+7. **Verify from both perspectives:**
    - `spctl -a -vvv -t install <dmg>` — the DMG passes Gatekeeper
      for installing.
    - `spctl -a -vvv -t exec <mounted-app>` — the `.app` passes
      Gatekeeper for executing.
    - `stapler validate` on both.
-7. **Cleanup** — delete the ephemeral keychain and the decoded `.p8`.
+8. **Cleanup** — delete the ephemeral keychain and the decoded `.p8`.
    Runs even if signing failed.
 
 When the secrets are **not** present (forks, PRs from third parties,
