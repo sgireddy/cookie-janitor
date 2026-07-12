@@ -84,14 +84,36 @@ are present:
    `xcrun notarytool store-credentials` to be run interactively on the
    build machine — impossible in CI. We hand off to our own step
    (below) which uses the `.p8` API key from secrets directly.
-3. **Notarize** via `xcrun notarytool submit --wait` using the
-   App Store Connect API key. Apple's service takes 5–15 minutes
-   typically to scan the DMG.
-4. **Staple** the notarization ticket into the DMG with
-   `xcrun stapler staple` so Gatekeeper works offline.
-5. **Verify** with `xcrun stapler validate` and
-   `spctl -a -vvv -t install`.
-6. **Cleanup** — delete the ephemeral keychain and the decoded `.p8`.
+3. **Notarize the `.app` directly** via `xcrun notarytool submit --wait`
+   with the `.app` zipped up (using `ditto -c -k --sequesterRsrc` to
+   preserve symlinks and code-signing metadata). Apple's service
+   takes 3–10 minutes typically. **Then `xcrun stapler staple` the
+   `.app` in place** — the ticket is now embedded in the bundle.
+
+   This step is critical. macOS 15+ Gatekeeper requires a stapled
+   ticket on the `.app` itself when launching from a mounted DMG or
+   after a copy to `/Applications`. Stapling only the DMG (as we did
+   in v0.8.1 before this fix) causes Sequoia to show the
+   "not supported on this Mac" error when it can't complete an
+   online Gatekeeper query.
+4. **Rebuild the DMG** with the stapled `.app`. `hdiutil convert`
+   briefcase's DMG to `UDRW` (read-write) format, mount it with
+   `-nobrowse -noautoopen`, replace the unstapled `.app` inside with
+   the stapled one, unmount, and `hdiutil convert` back to `ULFO`
+   (LZFSE-compressed read-only) — the same format briefcase produced.
+   Briefcase's background image, window layout, and Applications
+   symlink survive intact because we only touch the enclosed `.app`.
+5. **Notarize + staple the DMG.** Second `notarytool submit --wait`.
+   Apple recognizes the enclosed `.app` is already notarized so this
+   round is fast. Then `stapler staple` embeds the ticket in the DMG
+   for offline verification of the mounted volume.
+6. **Verify from both perspectives:**
+   - `spctl -a -vvv -t install <dmg>` — the DMG passes Gatekeeper
+     for installing.
+   - `spctl -a -vvv -t exec <mounted-app>` — the `.app` passes
+     Gatekeeper for executing.
+   - `stapler validate` on both.
+7. **Cleanup** — delete the ephemeral keychain and the decoded `.p8`.
    Runs even if signing failed.
 
 When the secrets are **not** present (forks, PRs from third parties,
