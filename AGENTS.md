@@ -272,3 +272,45 @@ not the other — CI runs both tools and both must stay green.
   publishing the SECURITY.md externally.
 - Signing identity for releases: who holds the keys? Sigstore keyless
   via OIDC in GitHub Actions is the recommended baseline.
+
+## Known follow-up work — see `docs/HANDOFF.md`
+
+Post-v0.8.5, three scoped items exist. Detail (options, effort
+estimates, mechanical checklists) lives in `docs/HANDOFF.md`. Read
+that file first before starting any of these.
+
+1. **Bundle size.** v0.8.5 DMG is 513 MB (universal2 doubled the
+   250 MB thin build). Tier 1 (`cleanup_paths`) + Tier 2
+   (`PySide6-Essentials`) is the recommended first PR — target
+   ~250 MB. See HANDOFF § 1.
+2. **Windows code signing + Winget.** MSI is unsigned today;
+   SmartScreen shows a warning to first-time users. Recommended
+   path: Azure Trusted Signing (HSM-backed, ~$10/mo, integrates
+   with GitHub Actions via `Azure/trusted-signing-action`). After
+   signing lands, submit to Winget via `wingetcreate`. See
+   HANDOFF § 3a/3b.
+3. **Microsoft Store (MSIX).** Feasible after Windows signing.
+   Requires converting the MSI to MSIX, Partner Center account
+   ($19 individual / $99 company), `broadFileSystemAccess`
+   capability declaration for reading other browsers' data
+   folders. See HANDOFF § 3c.
+
+## Maintainer question log (session-durable notes)
+
+Questions the maintainer asked recently. Answers live in the
+files listed; capturing the question here so future sessions
+don't re-litigate settled ground.
+
+- **2026-07-12 — "Can we cut binary size?"** Answered by HANDOFF
+  § 1. Real numbers, real ladder. Not started as of this note.
+- **2026-07-12 — "How do we publish to the Mac App Store?"**
+  Answered by HANDOFF § 2. **The current locked answer is still
+  D18 = No.** The question was captured for completeness (what
+  would change if D18 ever reverses). If a future session sees
+  this question re-raised, do not silently produce MAS packaging
+  code — first confirm D18 is being intentionally revisited, and
+  ask the maintainer to update D18 in this file before any
+  packaging work starts.
+- **2026-07-12 — "How do we sign and publish to Windows Store?"**
+  Answered by HANDOFF § 3. Not yet started but no D18-style
+  blocker; go ahead when the maintainer wants to.
